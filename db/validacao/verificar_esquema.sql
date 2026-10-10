@@ -92,6 +92,26 @@ SELECT t_ok('duas provas separadas com o mesmo grupo_id',
  $q$INSERT INTO prova(id,usuario_id,quantidade_solicitada,status,grupo_id) VALUES ('1000000c-0000-0000-0000-00000000000c','aaaaaaaa-0000-0000-0000-000000000001',5,'gerada','10000010-0000-0000-0000-000000000010'),('1000000d-0000-0000-0000-00000000000d','aaaaaaaa-0000-0000-0000-000000000001',5,'gerada','10000010-0000-0000-0000-000000000010')$q$);
 SELECT t_eq('provas do grupo', (SELECT count(*) FROM prova WHERE grupo_id='10000010-0000-0000-0000-000000000010'), 2);
 
+-- 4b) autenticação (V2): sessões, tokens de conta e bloqueio de login
+SELECT t_ok('sessão de refresh gravada',
+ $q$INSERT INTO sessao(id,usuario_id,familia_id,token_hash,expira_em) VALUES ('20000001-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000001',gen_random_uuid(),'hash-1',now()+interval '7 days')$q$);
+SELECT t_err('hash de refresh token repetido', $q$INSERT INTO sessao(id,usuario_id,familia_id,token_hash,expira_em) VALUES (gen_random_uuid(),'bbbbbbbb-0000-0000-0000-000000000002',gen_random_uuid(),'hash-1',now())$q$);
+SELECT t_ok('token de redefinição de senha', $q$INSERT INTO token_conta(id,usuario_id,tipo,token_hash,expira_em) VALUES ('20000002-0000-0000-0000-000000000002','aaaaaaaa-0000-0000-0000-000000000001','redefinicao_senha','hash-2',now()+interval '30 minutes')$q$);
+SELECT t_ok('token de confirmação de e-mail com novo e-mail', $q$INSERT INTO token_conta(id,usuario_id,tipo,token_hash,novo_email,expira_em) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','confirmacao_email','hash-3','novo@x.com',now()+interval '1 day')$q$);
+SELECT t_err('confirmação de e-mail sem novo e-mail', $q$INSERT INTO token_conta(id,usuario_id,tipo,token_hash,expira_em) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','confirmacao_email','hash-4',now())$q$);
+SELECT t_err('redefinição com novo e-mail', $q$INSERT INTO token_conta(id,usuario_id,tipo,token_hash,novo_email,expira_em) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','redefinicao_senha','hash-5','a@x.com',now())$q$);
+SELECT t_ok('token de verificação de e-mail do cadastro', $q$INSERT INTO token_conta(id,usuario_id,tipo,token_hash,expira_em) VALUES (gen_random_uuid(),'bbbbbbbb-0000-0000-0000-000000000002','verificacao_email','hash-9',now()+interval '1 day')$q$);
+SELECT t_err('verificação de e-mail com novo e-mail', $q$INSERT INTO token_conta(id,usuario_id,tipo,token_hash,novo_email,expira_em) VALUES (gen_random_uuid(),'bbbbbbbb-0000-0000-0000-000000000002','verificacao_email','hash-10','x@x.com',now())$q$);
+SELECT t_err('tipo de token inválido', $q$INSERT INTO token_conta(id,usuario_id,tipo,token_hash,expira_em) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','outro','hash-6',now())$q$);
+SELECT t_err('novo e-mail fora de minúsculas', $q$INSERT INTO token_conta(id,usuario_id,tipo,token_hash,novo_email,expira_em) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','confirmacao_email','hash-7','Novo@X.com',now())$q$);
+SELECT t_err('token_conta de usuário inexistente', $q$INSERT INTO token_conta(id,usuario_id,tipo,token_hash,expira_em) VALUES (gen_random_uuid(),gen_random_uuid(),'redefinicao_senha','hash-8',now())$q$);
+SELECT t_err('falhas_login negativo', $q$UPDATE usuario SET falhas_login = -1 WHERE id='bbbbbbbb-0000-0000-0000-000000000002'$q$);
+SELECT t_ok('contagem de falhas e bloqueio', $q$UPDATE usuario SET falhas_login = 5, bloqueado_ate = now()+interval '15 minutes' WHERE id='bbbbbbbb-0000-0000-0000-000000000002'$q$);
+SELECT t_ok('e-mail verificado e dados do dispositivo na sessão', $q$UPDATE usuario SET email_verificado_em = now() WHERE id='bbbbbbbb-0000-0000-0000-000000000002'; UPDATE sessao SET dispositivo='Firefox em Linux', ip='127.0.0.1' WHERE id='20000001-0000-0000-0000-000000000001'$q$);
+SELECT t_eq('conta nova nasce sem e-mail verificado', (SELECT count(*) FROM usuario WHERE email_verificado_em IS NULL AND id='aaaaaaaa-0000-0000-0000-000000000001'), 1);
+SELECT t_eq('índice parcial das contas não verificadas (V4)', (SELECT count(*) FROM pg_indexes WHERE indexname='usuario_nao_verificado_idx' AND indexdef LIKE '%email_verificado_em IS NULL%'), 1);
+SELECT t_ok('gatilho renova atualizado_em da sessão', $q$UPDATE sessao SET revogado_em = now() WHERE id='20000001-0000-0000-0000-000000000001'$q$);
+
 -- 5) isolamento por conta (papel da aplicação)
 SET ROLE nexo_app;
 SELECT t_eq('sem app.usuario_id: nenhuma linha de topico_fonte', (SELECT count(*) FROM topico_fonte), 0);
@@ -117,8 +137,10 @@ SELECT t_eq('ligações questao_trecho de M1 saíram', (SELECT count(*) FROM que
 SELECT t_eq('registro da indexação mantido', (SELECT count(*) FROM registro_geracao WHERE id='1000000e-0000-0000-0000-00000000000e'), 1);
 
 -- 7) exclusão da conta
+SELECT t_eq('nexo_app lê e grava sessao e token_conta (sem RLS, ADR 0010)', (SELECT count(*) FROM sessao) + (SELECT count(*) FROM token_conta), 4);
 SELECT t_ok('excluir conta A em uma instrução', $q$DELETE FROM usuario WHERE id='aaaaaaaa-0000-0000-0000-000000000001'$q$);
 RESET ROLE;
+SELECT t_eq('sessões e tokens de A saíram em cascata', (SELECT count(*) FROM sessao WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001') + (SELECT count(*) FROM token_conta WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001'), 0);
 SELECT t_eq('sobrou nada de A (fontes, questões, provas, registros, trechos)',
  (SELECT (SELECT count(*) FROM topico_fonte WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM questao WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM prova WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM registro_geracao WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM trecho WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')), 0);
 SELECT t_eq('dados de B intactos', (SELECT count(*) FROM trecho WHERE usuario_id='bbbbbbbb-0000-0000-0000-000000000002'), 5);

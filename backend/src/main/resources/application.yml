@@ -1,4 +1,9 @@
 spring:
+  mail:
+    properties:
+      mail.smtp.connectiontimeout: 5000   # sem timeout o JavaMail espera para sempre e prende as threads do segundo plano
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
   application.name: nexo-backend
   datasource:
     url: jdbc:postgresql://localhost:5432/nexo
@@ -9,8 +14,11 @@ spring:
 
 management.endpoints.web.exposure.include: health
 
+server.forward-headers-strategy: native  # IP real do cliente vem do X-Forwarded-For do nginx (ADR 0012)
+
 # Parâmetros de negócio (CLAUDE.md). Sobrescreva por variável de ambiente (ex.: NEXO_LIMITE_OPERACOES_POR_HORA).
 nexo:
+  ambiente: desenvolvimento              # desenvolvimento | producao: em producao a aplicacao recusa subir com configuracao insegura (ADR 0017)
   formatos-aceitos: [pdf, docx, txt]
   tamanho-maximo-mb: 20
   paginas-maximas: 50
@@ -33,3 +41,30 @@ nexo:
     intervalo-maximo: 365
   processamento:
     url: http://localhost:8000
+  jwt:
+    # segredo vem de NEXO_JWT_SEGREDO (mín. 32 caracteres); sem valor padrão de propósito
+    validade-acesso: PT15M
+    validade-refresh: P7D
+  login:
+    max-tentativas: 5
+    duracao-bloqueio: PT15M
+  conta:
+    validade-redefinicao: PT30M
+    validade-confirmacao-email: P1D
+    pedidos-por-hora: 3
+    url-frontend: http://localhost:3000   # base dos links enviados por e-mail
+    cookie-seguro: true                   # Secure no cookie do refresh; localhost é aceito como seguro pelos navegadores
+    caminho-cookie: /api/auth             # caminho visto pelo navegador (o proxy remove /api)
+    dias-conta-nao-verificada: 30         # conta que nunca confirmou o e-mail é apagada depois disto
+    fila-segundo-plano: 200               # tarefas pendentes; acima disso o trabalho é descartado com log de erro
+    assincrono: true                      # e-mails e trabalho de recuperação de senha em segundo plano (ADR 0012)
+    limpeza-cron: "0 30 3 * * *"           # apaga sessões e tokens vencidos (fuso: nexo.fuso)
+  limite-publico:                         # por IP, nas rotas públicas que custam um hash Argon2 (ADR 0012)
+    requisicoes: 20
+    janela: PT1M
+  seguranca:
+    hash-concorrencia: 4                  # hashes Argon2 simultâneos (cada um usa ~16 MiB)
+    hash-espera: PT5S
+  email:
+    provedor: falso                       # falso (registra o link no log) | smtp (spring.mail.*)
+    remetente: nao-responda@nexo.local

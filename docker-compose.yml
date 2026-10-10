@@ -41,7 +41,15 @@ services:
       SPRING_DATASOURCE_USERNAME: nexo_app
       SPRING_DATASOURCE_PASSWORD: ${NEXO_APP_SENHA}
       NEXO_PROCESSAMENTO_URL: http://processamento:8000
-    ports: ["8080:8080"]
+      NEXO_JWT_SEGREDO: ${NEXO_JWT_SEGREDO:?defina no .env}
+      NEXO_AMBIENTE: ${NEXO_AMBIENTE:-desenvolvimento}
+    ports: ["127.0.0.1:8080:8080"]  # só a máquina local; o acesso externo passa pelo frontend (nginx)
+    healthcheck:  # a imagem JRE não tem curl; bash abre o socket (o frontend só sobe depois, sem 502 na partida)
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
     depends_on:
       migracao: {condition: service_completed_successfully}
       processamento: {condition: service_started}
@@ -49,7 +57,8 @@ services:
   frontend:
     build: ./frontend
     ports: ["3000:80"]
-    depends_on: [backend]
+    depends_on:
+      backend: {condition: service_healthy}
 
 volumes:
   pgdata:

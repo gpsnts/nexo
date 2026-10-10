@@ -7,6 +7,7 @@ import java.time.ZoneId
 
 @ConfigurationProperties("nexo")
 data class NexoProperties(
+    val ambiente: String,
     val formatosAceitos: List<String>,
     val tamanhoMaximoMb: Int,
     val paginasMaximas: Int,
@@ -20,6 +21,12 @@ data class NexoProperties(
     val janelaGasto: Duration,
     val revisao: Revisao,
     val processamento: Processamento,
+    val jwt: Jwt,
+    val login: Login,
+    val conta: Conta,
+    val email: Email,
+    val limitePublico: LimitePublico,
+    val seguranca: Seguranca,
 ) {
     data class Revisao(
         val repeticoesInicial: Int,
@@ -33,4 +40,28 @@ data class NexoProperties(
     )
 
     data class Processamento(val url: String)
+
+    data class Jwt(val segredo: String, val validadeAcesso: Duration, val validadeRefresh: Duration)
+
+    data class Login(val maxTentativas: Int, val duracaoBloqueio: Duration)
+
+    data class Conta(
+        val validadeRedefinicao: Duration,
+        val validadeConfirmacaoEmail: Duration,
+        val pedidosPorHora: Int,
+        val urlFrontend: String,
+        val cookieSeguro: Boolean,
+        val caminhoCookie: String,
+        val assincrono: Boolean,
+        val limpezaCron: String,
+        val diasContaNaoVerificada: Long,
+        val filaSegundoPlano: Int,
+    )
+
+    data class LimitePublico(val requisicoes: Int, val janela: Duration)
+
+    /** [hashConcorrencia] limita quantos hashes Argon2 (16 MiB cada) rodam ao mesmo tempo; o excedente espera até [hashEspera] e depois recebe 503. */
+    data class Seguranca(val hashConcorrencia: Int, val hashEspera: Duration)
+
+    data class Email(val provedor: String, val remetente: String)
 }

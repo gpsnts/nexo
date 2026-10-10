@@ -1,15 +1,8 @@
 package br.nexo
 
-import org.flywaydb.core.Flyway
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
-import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.dao.DataAccessException
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
-import org.testcontainers.postgresql.PostgreSQLContainer
 import java.math.BigDecimal
 import java.net.URI
 import java.util.UUID
@@ -17,31 +10,8 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class BackendApplicationTests(
-    @Autowired val props: NexoProperties,
-    @Autowired val jdbc: JdbcTemplate,
-    @LocalServerPort val porta: Int,
-) {
-    companion object {
-        const val SENHA_APP = "senha-app-teste"
-
-        // Papel dono aplica o V1 + callback; o backend conecta como nexo_app.
-        val pg = PostgreSQLContainer("pgvector/pgvector:pg16").withUsername("nexo_dono").also {
-            it.start()
-            Flyway.configure().dataSource(it.jdbcUrl, it.username, it.password)
-                .locations("filesystem:../db/migrations", "filesystem:../db/callbacks")
-                .placeholders(mapOf("nexo_app_senha" to SENHA_APP)).load().migrate()
-        }
-
-        @JvmStatic
-        @DynamicPropertySource
-        fun datasource(r: DynamicPropertyRegistry) {
-            r.add("spring.datasource.url") { pg.jdbcUrl }
-            r.add("spring.datasource.username") { "nexo_app" }
-            r.add("spring.datasource.password") { SENHA_APP }
-        }
-    }
+class BackendApplicationTests : BaseIntegracao() {
+    @Autowired lateinit var props: NexoProperties
 
     @Test
     fun `health responde UP`() {

@@ -18,14 +18,17 @@ jobs:
       PGDATABASE: nexo
     steps:
       - uses: actions/checkout@v4
-      - name: Aplicar V1 em PostgreSQL vazio (Flyway, como no compose)
+      - name: Aplicar as migrações V1 a V4 em PostgreSQL vazio (Flyway, como no compose)
         run: >
           docker run --rm --network host -v "$PWD/db:/flyway/db:ro" flyway/flyway:10
           -url=jdbc:postgresql://localhost:5432/nexo -user=nexo_dono -password=ci
           -locations=filesystem:/flyway/db/migrations,filesystem:/flyway/db/callbacks
           -placeholders.nexo_app_senha=ci-app migrate
       - name: Validar esquema
-        run: psql -v ON_ERROR_STOP=1 -f db/validacao/verificar_esquema.sql | grep -c PASS
+        run: |
+          n=$(psql -v ON_ERROR_STOP=1 -f db/validacao/verificar_esquema.sql 2>&1 | grep -c PASS)
+          echo "verificações: $n"
+          test "$n" -eq 56
 
   backend:
     runs-on: ubuntu-latest
@@ -51,5 +54,5 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: {node-version: 24}
-      - run: npm ci && npm test -- --run --reporter=dot && npm run build --silent
+      - run: npm ci && npm run lint && npm test -- --run --reporter=dot && npm run build --silent
         working-directory: frontend
