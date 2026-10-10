@@ -1,0 +1,22 @@
+# Segredos e configuração local (o modelo versionado é o .env.example)
+.env
+.env.*
+!.env.example
+
+# Arquivos enviados pelos usuários (materiais) e dados locais do Docker
+armazenamento/
+uploads/
+pgdata/
+
+# Sistema e editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Logs
+*.log
+
+# Cada serviço tem o seu .gitignore (backend/, servico-processamento/, frontend/)

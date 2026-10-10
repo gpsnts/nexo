@@ -1,0 +1,238 @@
+             UNIVERSIDADE LUTERANA DO BRASIL
+                  EDUCAÇÃO A DISTÂNCIA
+
+Curso Superior de Tecnologia em Análise e Desenvolvimento de Sistemas
+
+
+    PROJETO TECNOLÓGICO EM DESENVOLVIMENTO DE SISTEMAS
+                   Etapa - Levantamento de Requisitos
+                Plataforma Nexo - Tutor de Estudo Guiado
+                          Gabriel Porto dos Santos
+                            gpsnts@rede.ulbra.br
+
+1. Requisitos Funcionais
+  ● RF01 — Autenticação de usuário
+     O sistema deve permitir que o usuário crie uma conta e realize login para acessar
+     as funcionalidades da plataforma. O acesso às demais funcionalidades depende
+     de uma sessão autenticada.
+  ● RF02 — Envio de material próprio
+     O sistema deve permitir que o usuário envie um material próprio (ex.: PDF ou
+     documento de texto) para que o conteúdo gerado seja baseado especificamente
+     nesse material.
+  ● RF03 — Informar tópico livre
+     O sistema deve permitir que o usuário, em vez de enviar material, apenas informe
+     um tópico de estudo livre (ex.: "Seguinda Guerra Mundial"), para os casos em que
+     não possui material específico em mãos.
+  ● RF04 — Processamento e indexação do material
+     Ao receber um material, o sistema deve processá-lo e indexá-lo, dividindo-o em
+     trechos e gerando representações semânticas, de modo a possibilitar buscas
+     posteriores sobre seu conteúdo.
+  ● RF05 — Geração de resumo
+     O sistema deve gerar um resumo do conteúdo estudado, a partir do material
+     enviado pelo usuário ou do tópico livre informado.
+  ● RF06 — Geração de questões
+     O sistema deve gerar questões de múltipla escolha sobre o conteúdo estudado, a
+     partir do material enviado pelo usuário ou do tópico livre informado.
+  ● RF07 — Geração fiel ao material (RAG)
+     Quando houver material fornecido pelo usuário, o sistema deve buscar os trechos
+     mais relevantes desse material e utilizá-los como base para a geração de
+     resumos e questões, garantindo que o conteúdo gerado seja fiel à fonte.
+
+
+
+                                    -1-
+             UNIVERSIDADE LUTERANA DO BRASIL
+                  EDUCAÇÃO A DISTÂNCIA
+
+Curso Superior de Tecnologia em Análise e Desenvolvimento de Sistemas
+
+
+  ● RF08 — Geração aberta sem material
+     Quando não houver material fornecido pelo usuário, o sistema deve gerar o
+     conteúdo com base no conhecimento geral do modelo de linguagem sobre o
+     tópico informado.
+  ● RF09 — Verificação pós-geração
+     Após gerar uma questão, o sistema deve verificar se ela é de fato sustentada pelo
+     conteúdo de origem, descartando ou regenerando questões que não atendam a
+     esse critério, de modo a reduzir respostas incorretas ou fora de contexto.
+  ● RF10 — Organização por assunto
+     O sistema deve permitir que o usuário organize os materiais enviados e os
+     tópicos estudados por assunto ou matéria, servindo de base para a montagem de
+     provas por escopo.
+  ● RF11 — Registro de respostas
+     O sistema deve registrar as respostas do usuário às questões apresentadas,
+     indicando se cada resposta foi correta ou incorreta, para alimentar o mecanismo
+     de revisão adaptativa.
+  ● RF12 — Cálculo de prioridade de revisão
+     O sistema deve calcular, para cada tópico estudado, um nível de prioridade de
+     revisão com base no histórico de acertos e erros do usuário, segundo uma lógica
+     de repetição espaçada.
+  ● RF13 — Priorização de tópicos na revisão
+     O sistema deve priorizar a apresentação dos tópicos com maior necessidade de
+     revisão nas próximas sessões de estudo do usuário, em vez de apresentar os
+     tópicos em ordem.
+  ● RF14 — Painel de desempenho
+     O sistema deve exibir um painel que mostre a evolução do desempenho do
+     usuário por assunto ao longo do tempo, permitindo identificar visualmente os
+     pontos fortes e fracos.
+  ● RF15 — Seleção de assuntos para prova
+     O sistema deve permitir que o usuário monte uma prova selecionando um ou
+     mais assuntos previamente cadastrados, a partir dos quais as questões serão
+     geradas
+
+
+
+
+     .
+                                   -2-
+             UNIVERSIDADE LUTERANA DO BRASIL
+                  EDUCAÇÃO A DISTÂNCIA
+
+Curso Superior de Tecnologia em Análise e Desenvolvimento de Sistemas
+
+
+  ● RF16 — Delimitação do escopo de estudo
+     O sistema deve permitir que o usuário delimite o ponto de estudo já alcançado em
+     um assunto, restringindo a prova gerada ao conteúdo correspondente a esse
+     avanço.
+  ● RF17 — Definição da quantidade de questões
+     O sistema deve permitir que o usuário defina a quantidade de questões desejada
+     para a prova a ser gerada.
+  ● RF18 — Provas combinadas ou separadas
+     O sistema deve permitir que o usuário escolha entre gerar uma única prova
+     combinando os assuntos selecionados ou gerar provas separadas, uma para
+     cada assunto escolhido.
+  ● RF19 — Histórico de materiais e tópicos
+     O sistema deve permitir que o usuário visualize o histórico de materiais enviados
+     e de tópicos já cadastrados anteriormente, podendo reutilizá-los em novas
+     gerações de conteúdo ou provas.
+
+
+———————————————————————————————————————
+
+
+
+2. Requisitos NÃO Funcionais
+  ● Desempenho:
+
+     O sistema deve responder às operações de navegação e consulta em até 3
+     segundos; operações de geração de conteúdo via IA, por dependerem de serviço
+     externo, podem ter tempo variável, devendo o usuário receber indicação visual de
+     carregamento durante esse período.
+
+  ● Usabilidade:
+
+     A interface deve ser responsiva, adaptando-se a smartphones, tablets e desktops.
+
+  ● Confiabilidade:
+
+     Deve haver registros e datas de criação/atualização das entradas de banco.
+
+  ● Disponibilidade:
+     
+     A aplicação deve estar disponível 24 horas por dia, 7 dias por semana,
+     admitindo-se janelas de manutenção previamente informadas.
+
+
+                                    -3-
+              UNIVERSIDADE LUTERANA DO BRASIL
+                   EDUCAÇÃO A DISTÂNCIA
+
+Curso Superior de Tecnologia em Análise e Desenvolvimento de Sistemas
+
+
+
+
+  ● Segurança:
+     
+     O acesso ao sistema deve ser protegido por autenticação com login e senha, com
+     senhas armazenadas de forma criptografada. Toda a comunicação deve ocorrer
+     via HTTPS, respeitando as ISO 27001 e 27701. Deverá também estar conforme a
+     LGPD.
+
+  ● Segurança com comunicação com provedor de IA:
+
+     Os endpoints que acionam a API de inteligência artificial devem possuir limite de
+     requisições (rate limiting) por usuário, evitando uso indevido e custos não
+     previstos.
+
+  ● Tecnologias:
+
+     O backend deve ser desenvolvido em Kotlin com Spring Boot; o processamento
+     de IA, em um serviço à parte em Python; o banco de dados deve ser o
+     PostgreSQL, com a extensão pgvector; o frontend deve ser desenvolvido em
+     React; e toda a solução deve ser “containerizada” com Docker.
+
+  ● Resiliência:
+
+     Caso a API de modelo de linguagem esteja indisponível ou retorne erro, o
+     sistema deve exibir uma mensagem clara ao usuário e permitir nova tentativa, em
+     vez de falhar silenciosamente ou travar a interface.
+
+  ● Controle de Custo Operacional:
+
+     O consumo da API de IA deve ser monitorado, com limite de gasto configurável,
+     de forma a evitar custos não previstos decorrentes de uso excessivo ou abusivo.
+
+  ● Qualidade da Geração:
+
+     Questões geradas a partir de material fornecido pelo usuário devem passar por
+     verificação de aderência ao conteúdo de origem antes de serem exibidas, com
+     taxa de rejeição/regeneração registrada para acompanhamento da qualidade do
+     pipeline.
+
+  ● Auditabilidade:
+
+     O sistema deve manter um registro das gerações de conteúdo realizadas,
+     incluindo data, tipo de entrada (material ou tópico) e resultado, para fins de
+     suporte e depuração.
+
+
+
+                                     -4-
+             UNIVERSIDADE LUTERANA DO BRASIL
+                  EDUCAÇÃO A DISTÂNCIA
+
+Curso Superior de Tecnologia em Análise e Desenvolvimento de Sistemas
+
+
+  ● Retenção e privacidade dos dados:
+
+     Os materiais enviados pelos usuários devem ser armazenados de forma isolada
+     por conta, sem serem utilizados para geração de conteúdo de outros usuários, e
+     devem poder ser excluídos pelo próprio usuário a qualquer momento, para
+     conformidade também com a LGPD.
+
+  ● Baixo acoplamento com provedor de IA:
+
+     O serviço de geração deve ser desenvolvido de forma que o provedor de modelo
+     de linguagem (ex.: Gemini, Claude, GPT) possa ser substituído com o mínimo de
+     alteração no restante do sistema.
+
+  ● Tempo e volume de processamento de material:
+
+     O processamento e a indexação de um material enviado (ex.: um PDF de até 50
+     páginas) devem ser concluídos em tempo compatível com uma espera aceitável
+     pelo usuário, com indicação de progresso durante a operação.
+
+  ● Portabilidade de dados:
+
+     O usuário deve poder exportar seu histórico de desempenho e as questões
+     geradas, evitando dependência exclusiva da plataforma para acesso aos próprios
+     dados de estudo.
+
+  ● Portabilidade de browsers:
+
+     A aplicação deve funcionar corretamente, no mínimo, nos navegadores Google
+     Chrome e Mozilla Firefox, em suas versões atuais.
+
+  ● Identidade visual:
+
+     Em todas as interfaces da aplicação deve constar a identidade visual da
+     Plataforma Nexo
+
+
+
+
+                                   -5-
+

@@ -1,0 +1,35 @@
+spring:
+  application.name: nexo-backend
+  datasource:
+    url: jdbc:postgresql://localhost:5432/nexo
+    username: nexo_app   # nunca o papel dono: a RLS não vale para ele
+    password: ${NEXO_APP_SENHA:}
+  jpa.open-in-view: false
+  flyway.enabled: false  # migrações rodam no serviço "migracao" do compose, com o papel dono
+
+management.endpoints.web.exposure.include: health
+
+# Parâmetros de negócio (CLAUDE.md). Sobrescreva por variável de ambiente (ex.: NEXO_LIMITE_OPERACOES_POR_HORA).
+nexo:
+  formatos-aceitos: [pdf, docx, txt]
+  tamanho-maximo-mb: 20
+  paginas-maximas: 50
+  limite-operacoes-por-hora: 30
+  tentativas-por-questao: 3
+  questoes-por-sessao-revisao: 20
+  fuso: America/Sao_Paulo
+  limiar-similaridade-repeticao: 0.90
+  figuras-por-material: 30
+  limite-gasto-usd: 10      # valor provisório: decisão em aberto 3 do CLAUDE.md
+  janela-gasto: P30D
+  revisao:
+    repeticoes-inicial: 0
+    intervalo-inicial: 1
+    fator-inicial: 2.50
+    fator-maximo: 2.50
+    fator-minimo: 1.30
+    fator-acerto: 0.10
+    fator-erro: 0.20
+    intervalo-maximo: 365
+  processamento:
+    url: http://localhost:8000

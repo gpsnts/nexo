@@ -1,0 +1,55 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: nexo_dono
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina no .env}
+      POSTGRES_DB: nexo
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexo_dono -d nexo"]
+      interval: 3s
+      retries: 20
+
+  # Único lugar com as credenciais do dono; o backend só conhece o nexo_app.
+  migracao:
+    image: flyway/flyway:10
+    command: migrate
+    environment:
+      FLYWAY_URL: jdbc:postgresql://db:5432/nexo
+      FLYWAY_USER: nexo_dono
+      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD}
+      FLYWAY_LOCATIONS: filesystem:/flyway/migrations,filesystem:/flyway/callbacks
+      FLYWAY_PLACEHOLDERS_NEXO_APP_SENHA: ${NEXO_APP_SENHA:?defina no .env}
+    volumes:
+      - ./db/migrations:/flyway/migrations:ro
+      - ./db/callbacks:/flyway/callbacks:ro
+    depends_on:
+      db: {condition: service_healthy}
+
+  processamento:
+    build: ./servico-processamento
+    environment:
+      EMBEDDING_PROVEDOR: ${EMBEDDING_PROVEDOR:-falso}
+      MODELO_LINGUAGEM_PROVEDOR: ${MODELO_LINGUAGEM_PROVEDOR:-falso}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+  backend:
+    build: ./backend
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/nexo
+      SPRING_DATASOURCE_USERNAME: nexo_app
+      SPRING_DATASOURCE_PASSWORD: ${NEXO_APP_SENHA}
+      NEXO_PROCESSAMENTO_URL: http://processamento:8000
+    ports: ["8080:8080"]
+    depends_on:
+      migracao: {condition: service_completed_successfully}
+      processamento: {condition: service_started}
+
+  frontend:
+    build: ./frontend
+    ports: ["3000:80"]
+    depends_on: [backend]
+
+volumes:
+  pgdata:
