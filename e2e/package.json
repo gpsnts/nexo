@@ -1,0 +1,15 @@
+{
+  "name": "nexo-e2e",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "fixtures": "../servico-processamento/.venv/bin/python gerar_fixtures.py"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.2",
+    "@playwright/test": "1.57.0",
+    "@types/node": "^24.0.0",
+    "typescript": "~6.0.0"
+  }
+}

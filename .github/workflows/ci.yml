@@ -18,7 +18,7 @@ jobs:
       PGDATABASE: nexo
     steps:
       - uses: actions/checkout@v4
-      - name: Aplicar as migrações V1 a V4 em PostgreSQL vazio (Flyway, como no compose)
+      - name: Aplicar as migrações V1 a V5 em PostgreSQL vazio (Flyway, como no compose)
         run: >
           docker run --rm --network host -v "$PWD/db:/flyway/db:ro" flyway/flyway:10
           -url=jdbc:postgresql://localhost:5432/nexo -user=nexo_dono -password=ci
@@ -28,7 +28,7 @@ jobs:
         run: |
           n=$(psql -v ON_ERROR_STOP=1 -f db/validacao/verificar_esquema.sql 2>&1 | grep -c PASS)
           echo "verificações: $n"
-          test "$n" -eq 56
+          test "$n" -eq 58
 
   backend:
     runs-on: ubuntu-latest
@@ -56,3 +56,30 @@ jobs:
         with: {node-version: 24}
       - run: npm ci && npm run lint && npm test -- --run --reporter=dot && npm run build --silent
         working-directory: frontend
+
+  # Testes de ponta a ponta em navegador (ADR 0016): sobem o compose de verdade (provedores de IA falsos) e rodam Chrome, Firefox e celular.
+  e2e:
+    runs-on: ubuntu-latest
+    needs: [esquema, backend, processamento, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Subir o compose
+        env: {NEXO_LIMITE_PUBLICO_REQUISICOES: "100000"}
+        run: |
+          cp .env.example .env
+          docker compose up -d --build --quiet-pull   # o frontend só sobe com o backend saudável (depends_on)
+          for i in $(seq 1 60); do curl -fs http://localhost:3000/ >/dev/null && break; sleep 2; done
+      - uses: actions/setup-node@v4
+        with: {node-version: 24}
+      - name: Testes de navegador
+        working-directory: e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium firefox
+          npx playwright test
+      - name: Relatório e log do backend em caso de falha
+        if: failure()
+        run: docker compose logs --no-color backend processamento | tail -300
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with: {name: relatorio-e2e, path: e2e/playwright-report}

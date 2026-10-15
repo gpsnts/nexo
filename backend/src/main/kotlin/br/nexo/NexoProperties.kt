@@ -12,6 +12,7 @@ data class NexoProperties(
     val tamanhoMaximoMb: Int,
     val paginasMaximas: Int,
     val limiteOperacoesPorHora: Int,
+    val janelaOperacoes: Duration,
     val tentativasPorQuestao: Int,
     val questoesPorSessaoRevisao: Int,
     val fuso: ZoneId,
@@ -21,6 +22,7 @@ data class NexoProperties(
     val janelaGasto: Duration,
     val revisao: Revisao,
     val processamento: Processamento,
+    val material: Material,
     val jwt: Jwt,
     val login: Login,
     val conta: Conta,
@@ -39,7 +41,25 @@ data class NexoProperties(
         val intervaloMaximo: Int,
     )
 
-    data class Processamento(val url: String)
+    /** [segredo] é compartilhado com o serviço Python (cabeçalho X-Nexo-Segredo); sem valor padrão de propósito. */
+    data class Processamento(val url: String, val segredo: String, val timeout: Duration, val tentativas: Int, val espera: Duration)
+
+    data class Material(
+        val diretorio: String,
+        val assincrono: Boolean,
+        val threads: Int,
+        val fila: Int,
+        val simultaneosPorUsuario: Int,
+        val enviosSimultaneos: Int,
+        val caracteresPorPagina: Int,
+        val loteEmbeddings: Int,
+        val pulsoMaximo: Duration,
+        val trechosPorTopicoPlanoB: Int,
+        val trechosMinimosPorTopico: Int,
+        val maxTopicos: Int,
+        val esperasRemocao: List<Duration>,
+        val precosEmbeddingUsdPorMilhao: Map<String, BigDecimal>,
+    )
 
     data class Jwt(val segredo: String, val validadeAcesso: Duration, val validadeRefresh: Duration)
 

@@ -39,7 +39,7 @@ class EmailTesteConfig {
 // Testes rodam sem segundo plano (e-mails aparecem na hora) e com limite de taxa alto; LimiteTaxaTest baixa o limite.
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = ["nexo.conta.assincrono=false", "nexo.limite-publico.requisicoes=100000"],
+    properties = ["nexo.conta.assincrono=false", "nexo.material.assincrono=false", "nexo.limite-publico.requisicoes=100000"],
 )
 @org.springframework.context.annotation.Import(EmailTesteConfig::class)
 abstract class BaseIntegracao {
@@ -53,6 +53,11 @@ abstract class BaseIntegracao {
     companion object {
         const val SENHA_APP = "senha-app-teste"
         const val SEGREDO = "segredo-de-teste-com-mais-de-32-caracteres"
+        const val SEGREDO_INTERNO = "segredo-interno-de-teste"
+
+        /** Serviço Python de mentira e pasta de arquivos temporária, compartilhados por todos os testes (um só contexto Spring). */
+        val python = PythonFalso(SEGREDO_INTERNO)
+        val arquivos: java.nio.file.Path = java.nio.file.Files.createTempDirectory("nexo-arquivos")
 
         val pg = PostgreSQLContainer("pgvector/pgvector:pg16").withUsername("nexo_dono").also {
             it.start()
@@ -69,6 +74,11 @@ abstract class BaseIntegracao {
             r.add("spring.datasource.password") { SENHA_APP }
             r.add("spring.datasource.hikari.maximum-pool-size") { "1" } // força reuso da conexão: expõe vazamento de contexto
             r.add("nexo.jwt.segredo") { SEGREDO }
+            r.add("nexo.processamento.url") { python.url }
+            r.add("nexo.processamento.segredo") { SEGREDO_INTERNO }
+            r.add("nexo.processamento.espera") { "PT0.01S" }
+            r.add("nexo.material.diretorio") { arquivos.toString() }
+            r.add("nexo.material.esperas-remocao") { "PT0.05S,PT0.05S" }
         }
 
         val mapper: JsonMapper = JsonMapper.builder().build()
@@ -86,6 +96,22 @@ abstract class BaseIntegracao {
         if (cookie != null) b.header("Cookie", cookie)
         if (agente != null) b.header("User-Agent", agente)
         val r = http.send(b.build(), HttpResponse.BodyHandlers.ofString())
+        return Resposta(r.statusCode(), if (r.body().isBlank()) mapper.createObjectNode() else mapper.readTree(r.body()), r.headers())
+    }
+
+    /** Envio multipart de um arquivo (POST /materiais). */
+    fun enviarArquivo(token: String, nome: String, conteudo: ByteArray, assuntoId: String? = null): Resposta {
+        val limite = "teste" + UUID.randomUUID().toString().replace("-", "")
+        val corpo = java.io.ByteArrayOutputStream().apply {
+            if (assuntoId != null) write("--$limite\r\nContent-Disposition: form-data; name=\"assuntoId\"\r\n\r\n$assuntoId\r\n".toByteArray())
+            write("--$limite\r\nContent-Disposition: form-data; name=\"arquivo\"; filename=\"$nome\"\r\nContent-Type: application/octet-stream\r\n\r\n".toByteArray())
+            write(conteudo); write("\r\n--$limite--\r\n".toByteArray())
+        }.toByteArray()
+        val r = http.send(
+            HttpRequest.newBuilder(URI("http://localhost:$porta/materiais")).header("Authorization", "Bearer $token")
+                .header("Content-Type", "multipart/form-data; boundary=$limite").POST(HttpRequest.BodyPublishers.ofByteArray(corpo)).build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
         return Resposta(r.statusCode(), if (r.body().isBlank()) mapper.createObjectNode() else mapper.readTree(r.body()), r.headers())
     }
 

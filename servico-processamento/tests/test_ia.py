@@ -56,3 +56,11 @@ def test_fabrica(monkeypatch):
 def test_saude():
     r = TestClient(app).get("/saude")
     assert r.status_code == 200 and r.json()["status"] == "UP"
+
+
+@pytest.mark.real
+def test_embedding_openai_real():
+    import os
+
+    r = EmbeddingOpenAI(os.environ["OPENAI_API_KEY"]).gerar(["olá", "mundo"])
+    assert len(r.vetores) == 2 and len(r.vetores[0]) == DIMENSAO

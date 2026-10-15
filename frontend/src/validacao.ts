@@ -15,6 +15,6 @@ export const erroSenhaNova = (v: string) =>
 export const temErro = (e: Erros) => Object.values(e).some(Boolean)
 
 /** Leva o foco ao primeiro campo marcado como inválido (depois que o React pinta os erros). */
-export function focarPrimeiroInvalido(formulario: HTMLFormElement | null) {
+export function focarPrimeiroInvalido(formulario: ParentNode | null) {
   requestAnimationFrame(() => formulario?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
 }

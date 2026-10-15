@@ -1,4 +1,5 @@
 import os
+from functools import lru_cache
 
 from nexo_processamento.ia.embedding import EmbeddingFalso, EmbeddingOpenAI, ModeloEmbedding
 from nexo_processamento.ia.linguagem import ModeloLinguagem, ModeloLinguagemFalso
@@ -12,8 +13,14 @@ def criar_embedding() -> ModeloEmbedding:
         chave = os.getenv("OPENAI_API_KEY")
         if not chave:
             raise ValueError("OPENAI_API_KEY é obrigatória com EMBEDDING_PROVEDOR=openai")
-        return EmbeddingOpenAI(chave)
+        return _openai(chave)
     raise ValueError(f"EMBEDDING_PROVEDOR desconhecido: {p}")
+
+
+@lru_cache(maxsize=4)
+def _openai(chave: str) -> EmbeddingOpenAI:
+    """Um só cliente HTTP por chave: criar um a cada requisição vazava conexões abertas."""
+    return EmbeddingOpenAI(chave)
 
 
 def criar_linguagem() -> ModeloLinguagem:

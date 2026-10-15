@@ -505,11 +505,11 @@ test('limite de tentativas: o botão mostra a contagem regressiva e volta ao nor
 
 test('o Início mostra carregando e depois o estado vazio de materiais; há link para pular ao conteúdo', async () => {
   jaEntrouAntes()
-  servidor({ 'POST /auth/refresh': [200, { token: 't', nome: 'Ana' }], 'GET /assuntos': geral })
+  servidor({ 'POST /auth/refresh': [200, { token: 't', nome: 'Ana' }], 'GET /assuntos': geral, 'GET /materiais': [200, []] })
   render(<App />)
   expect(await screen.findByText('Olá, Ana')).toBeTruthy()
   expect(await screen.findByText('Geral')).toBeTruthy()
-  expect(screen.getByText(/ainda não enviou nenhum material/)).toBeTruthy()
+  expect(await screen.findByText(/ainda não enviou nenhum material/)).toBeTruthy()
   fireEvent.click(screen.getByText('Pular para o conteúdo'))
   expect(document.activeElement?.id).toBe('conteudo')
 })

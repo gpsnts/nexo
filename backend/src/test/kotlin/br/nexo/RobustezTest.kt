@@ -162,8 +162,11 @@ class RobustezTest : BaseIntegracao() {
         val prod = props.copy(ambiente = "producao")
         val problemas = GuardaDeAmbiente(prod).problemas()
         assertTrue(problemas.any { "provedor=falso" in it } && problemas.any { "https" in it })
+        assertTrue(GuardaDeAmbiente(prod.copy(processamento = prod.processamento.copy(segredo = "curto"))).problemas().any { "processamento.segredo" in it })
+        assertTrue(GuardaDeAmbiente(prod.copy(jwt = prod.jwt.copy(segredo = "troque-por-um-segredo-com-32-caracteres-ou-mais"))).problemas().any { "valor de exemplo" in it })
+        assertTrue(GuardaDeAmbiente(prod.copy(processamento = prod.processamento.copy(segredo = "troque-por-outro-segredo-interno-longo"))).problemas().any { "valor de exemplo" in it })
         assertFailsWith<IllegalStateException> { GuardaDeAmbiente(prod).validar() }
-        val ok = prod.copy(email = prod.email.copy(provedor = "smtp"), conta = prod.conta.copy(urlFrontend = "https://nexo.exemplo.br", assincrono = true))
+        val ok = prod.copy(email = prod.email.copy(provedor = "smtp"), conta = prod.conta.copy(urlFrontend = "https://nexo.exemplo.br", assincrono = true), material = prod.material.copy(assincrono = true))
         assertTrue(GuardaDeAmbiente(ok).problemas().isEmpty())
         assertTrue(GuardaDeAmbiente(props.copy(ambiente = "desenvolvimento")).problemas().isEmpty())
     }

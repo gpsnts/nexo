@@ -3,12 +3,14 @@ import { api, definirToken, quandoPerderSessao, renovarSessao, type Sessao } fro
 import Entrar, { type Modo } from './Entrar'
 import Inicio from './Inicio'
 import LinkDeEmail from './LinkDeEmail'
+import Material from './Material'
 import NaoEncontrada from './NaoEncontrada'
+import NovoEstudo from './NovoEstudo'
 import Perfil from './Perfil'
-import { ehEntrada, ehInterna, ehLink, proximoDaUrl, rotaDaUrl, urlDe, type NomeRota } from './rotas'
+import { ehEntrada, ehInterna, ehLink, idDoMaterial, proximoDaUrl, rotaDaUrl, urlDe, urlMaterial, type NomeRota } from './rotas'
 import { chaveSessao, marcarSessao, talvezTenhaSessao } from './sessaoLocal'
 
-type Destino = Exclude<NomeRota, 'desconhecida'>
+type Destino = Exclude<NomeRota, 'desconhecida' | 'material'>
 const modoDaRota = (r: NomeRota): Modo => (r === 'criar' ? 'criar' : r === 'recuperar' ? 'esqueci' : 'entrar')
 const rotaDoModo = (m: Modo): Destino => (m === 'criar' ? 'criar' : m === 'esqueci' ? 'recuperar' : 'entrar')
 
@@ -36,6 +38,10 @@ export default function App() {
     window.history[opcoes.substituir ? 'replaceState' : 'pushState'](null, '', urlDe(nome, opcoes.proximo))
     window.dispatchEvent(new Event(EVENTO_ROTA))
   }, [])
+  const abrirMaterial = useCallback((id: string) => {
+    window.history.pushState(null, '', urlMaterial(id))
+    window.dispatchEvent(new Event(EVENTO_ROTA))
+  }, [])
 
   const entrar = useCallback((s: Sessao) => { definirToken(s.token); marcarSessao(true); setAviso(''); setSessao({ nome: s.nome }) }, [])
   const sair = useCallback(() => { definirToken(null); marcarSessao(false); setSessao(null) }, [])
@@ -54,7 +60,7 @@ export default function App() {
   // Sem sessão, telas internas levam ao login e voltam para o destino depois; com sessão, o login leva ao destino.
   useEffect(() => {
     if (carregando) return
-    if (!sessao && ehInterna(rota)) navegar('entrar', { substituir: true, proximo: rota as 'inicio' | 'perfil' })
+    if (!sessao && ehInterna(rota)) navegar('entrar', { substituir: true, proximo: rota === 'perfil' ? 'perfil' : 'inicio' })
     else if (sessao && ehEntrada(rota)) navegar(proximoDaUrl(), { substituir: true })
   }, [carregando, sessao, rota, navegar])
 
@@ -78,7 +84,11 @@ export default function App() {
   if (carregando) return null
   if (!sessao)
     return <Entrar key={modoDaRota(rota)} modo={modoDaRota(rota)} emailInicial={emailRascunho} aoMudarEmail={setEmailRascunho} aoMudarModo={mudarModo} aoEntrar={entrar} aviso={aviso} />
-  return rota === 'perfil'
-    ? <Perfil nome={sessao.nome} aoIrInicio={() => navegar('inicio')} aoSair={encerrar} aoExcluir={sair} aoAtualizarNome={(nome) => setSessao({ nome })} />
-    : <Inicio nome={sessao.nome} aoSair={encerrar} aoAbrirPerfil={() => navegar('perfil')} />
+  const comum = { aoIrInicio: () => navegar('inicio'), aoIrPerfil: () => navegar('perfil'), aoSair: encerrar }
+  if (rota === 'perfil')
+    return <Perfil nome={sessao.nome} aoIrInicio={comum.aoIrInicio} aoSair={encerrar} aoExcluir={sair} aoAtualizarNome={(nome) => setSessao({ nome })} />
+  if (rota === 'novo') return <NovoEstudo {...comum} aoAbrirMaterial={abrirMaterial} />
+  if (rota === 'material')
+    return <Material key={idDoMaterial()} id={idDoMaterial()!} {...comum} aoNovoEnvio={() => navegar('novo')} />
+  return <Inicio nome={sessao.nome} aoSair={encerrar} aoAbrirPerfil={() => navegar('perfil')} aoNovoEstudo={() => navegar('novo')} aoAbrirMaterial={abrirMaterial} />
 }

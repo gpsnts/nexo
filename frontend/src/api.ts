@@ -2,11 +2,13 @@ export class ErroApi extends Error {
   status: number
   codigo?: string
   espera?: number // segundos até poder tentar de novo (limite de tentativas)
-  constructor(status: number, message: string, codigo?: string, espera?: number) {
+  dados?: Record<string, unknown> // corpo completo do erro (ex.: materialId em material_repetido)
+  constructor(status: number, message: string, codigo?: string, espera?: number, dados?: Record<string, unknown>) {
     super(message)
     this.status = status
     this.codigo = codigo
     this.espera = espera
+    this.dados = dados
   }
 }
 
@@ -26,32 +28,36 @@ export function renovarSessao(): Promise<Sessao> {
   return renovando
 }
 
-async function enviar(caminho: string, metodo: string, corpo: unknown) {
+async function enviar(caminho: string, metodo: string, corpo: unknown, formulario?: FormData) {
   return fetch(`/api${caminho}`, {
     method: metodo,
     headers: {
+      // Com FormData o navegador monta o Content-Type (multipart com o boundary); não definir aqui.
       ...(corpo ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: corpo ? JSON.stringify(corpo) : undefined,
+    body: formulario ?? (corpo ? JSON.stringify(corpo) : undefined),
   })
 }
 
-export async function api<T>(caminho: string, opcoes: { metodo?: string; corpo?: unknown } = {}): Promise<T> {
-  const metodo = opcoes.metodo ?? (opcoes.corpo ? 'POST' : 'GET')
-  let r = await enviar(caminho, metodo, opcoes.corpo)
+/** `formulario` envia multipart (upload de material) com o mesmo tratamento de 401 e de erros. */
+export async function api<T>(caminho: string, opcoes: { metodo?: string; corpo?: unknown; formulario?: FormData } = {}): Promise<T> {
+  const metodo = opcoes.metodo ?? (opcoes.corpo || opcoes.formulario ? 'POST' : 'GET')
+  let r = await enviar(caminho, metodo, opcoes.corpo, opcoes.formulario)
   // Token de acesso vencido: renova uma vez e repete. As rotas /auth não entram nesse laço.
   if (r.status === 401 && token && !caminho.startsWith('/auth/')) {
     try {
       await renovarSessao()
-      r = await enviar(caminho, metodo, opcoes.corpo)
+      r = await enviar(caminho, metodo, opcoes.corpo, opcoes.formulario)
     } catch {
       token = null
       aoPerderSessao()
     }
   }
-  const dados = r.status === 204 || r.status === 202 ? null : await r.json().catch(() => null)
-  if (!r.ok) throw new ErroApi(r.status, dados?.mensagem ?? 'Não foi possível concluir. Tente novamente.', dados?.codigo, dados?.esperaSegundos)
+  const dados = r.status === 204 ? null : await r.json().catch(() => null)
+  // 413 do nginx vem em HTML (sem mensagem): é o limite de corpo do envio de material.
+  const padrao = r.status === 413 ? 'O arquivo é grande demais.' : 'Não foi possível concluir. Tente novamente.'
+  if (!r.ok) throw new ErroApi(r.status, dados?.mensagem ?? padrao, dados?.codigo, dados?.esperaSegundos, dados ?? undefined)
   return dados as T
 }
 

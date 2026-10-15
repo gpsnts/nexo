@@ -6,6 +6,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina no .env}
       POSTGRES_DB: nexo
     volumes: [pgdata:/var/lib/postgresql/data]
+    ports: ["127.0.0.1:5432:5432"]  # só a máquina local (DBeaver etc.); nunca sem o 127.0.0.1
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nexo_dono -d nexo"]
       interval: 3s
@@ -33,16 +34,22 @@ services:
       EMBEDDING_PROVEDOR: ${EMBEDDING_PROVEDOR:-falso}
       MODELO_LINGUAGEM_PROVEDOR: ${MODELO_LINGUAGEM_PROVEDOR:-falso}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      NEXO_PROCESSAMENTO_SEGREDO: ${NEXO_PROCESSAMENTO_SEGREDO:?defina no .env}  # o backend manda este segredo em toda chamada interna
 
   backend:
     build: ./backend
+    restart: on-failure  # se subir antes do banco (ex.: `docker start` fora de ordem), tenta de novo em vez de ficar parado
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/nexo
       SPRING_DATASOURCE_USERNAME: nexo_app
       SPRING_DATASOURCE_PASSWORD: ${NEXO_APP_SENHA}
       NEXO_PROCESSAMENTO_URL: http://processamento:8000
+      NEXO_PROCESSAMENTO_SEGREDO: ${NEXO_PROCESSAMENTO_SEGREDO:?defina no .env}
+      NEXO_MATERIAL_DIRETORIO: /dados/arquivos
       NEXO_JWT_SEGREDO: ${NEXO_JWT_SEGREDO:?defina no .env}
       NEXO_AMBIENTE: ${NEXO_AMBIENTE:-desenvolvimento}
+      NEXO_LIMITE_PUBLICO_REQUISICOES: ${NEXO_LIMITE_PUBLICO_REQUISICOES:-20}  # só os testes E2E (cadastram dezenas de contas por minuto) sobem isto
+    volumes: [arquivos:/dados/arquivos]  # arquivos enviados (ADR 0024); só o backend monta
     ports: ["127.0.0.1:8080:8080"]  # só a máquina local; o acesso externo passa pelo frontend (nginx)
     healthcheck:  # a imagem JRE não tem curl; bash abre o socket (o frontend só sobe depois, sem 502 na partida)
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]
@@ -62,3 +69,4 @@ services:
 
 volumes:
   pgdata:
+  arquivos:

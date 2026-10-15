@@ -1,20 +1,20 @@
 /* Tema claro por padrão; escuro por prefers-color-scheme, ou forçado pelo seletor (atributo data-theme em <html>). */
 :root {
   --fundo: #f6f7fb; --cartao: #fff; --texto: #1b1d2b; --suave: #5b6075; --borda: #d9dcea;
-  --primaria: #4338ca; --primaria-texto: #fff; --erro: #b91c1c; --ok: #0f766e; --destaque: #0d9488;
+  --primaria: #4338ca; --primaria-texto: #fff; --erro: #b91c1c; --aviso: #b45309; --ok: #0f766e; --destaque: #0d9488;
   --sombra: 0 10px 30px #0001;
   color-scheme: light;
 }
 :root[data-theme="dark"] {
   --fundo: #0f1020; --cartao: #181a30; --texto: #eceefb; --suave: #a4a9c6; --borda: #2c2f50;
-  --primaria: #818cf8; --primaria-texto: #0f1020; --erro: #fca5a5; --ok: #2dd4bf; --destaque: #2dd4bf;
+  --primaria: #818cf8; --primaria-texto: #0f1020; --erro: #fca5a5; --aviso: #fbbf24; --ok: #2dd4bf; --destaque: #2dd4bf;
   --sombra: 0 10px 30px #0006;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --fundo: #0f1020; --cartao: #181a30; --texto: #eceefb; --suave: #a4a9c6; --borda: #2c2f50;
-    --primaria: #818cf8; --primaria-texto: #0f1020; --erro: #fca5a5; --ok: #2dd4bf; --destaque: #2dd4bf;
+    --primaria: #818cf8; --primaria-texto: #0f1020; --erro: #fca5a5; --aviso: #fbbf24; --ok: #2dd4bf; --destaque: #2dd4bf;
     --sombra: 0 10px 30px #0006;
     color-scheme: dark;
   }
@@ -27,7 +27,7 @@ body {
                     radial-gradient(50rem 30rem at -10% 110%, color-mix(in srgb, var(--destaque) 12%, transparent), transparent);
   background-attachment: fixed;
 }
-h1 { font-size: 1.5rem; margin: 1.2rem 0 .3rem; }
+h1 { font-size: 1.5rem; margin: 1.2rem 0 .3rem; overflow-wrap: anywhere; } /* nome de arquivo longo no título não pode criar rolagem horizontal */
 h1:focus { outline: none; } /* o foco vai ao título ao trocar de tela (leitores de tela), sem anel visual */
 h2 { font-size: 1.1rem; }
 .sub { color: var(--suave); margin: 0 0 1.2rem; }
@@ -53,7 +53,7 @@ main:focus { outline: none; }
 .cab { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: .5rem 1rem; }
 .cab nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0 1rem; }
 button[aria-current="page"] { text-decoration: underline; text-underline-offset: .3em; }
-.lista { list-style: none; padding: 0; display: grid; gap: .5rem; max-width: 32rem; }
+.lista { list-style: none; padding: 0; display: grid; gap: .5rem; max-width: 40rem; }
 .lista li { background: var(--cartao); border: 1px solid var(--borda); border-radius: .6rem; padding: .75rem 1rem; }
 
 /* formulários */
@@ -70,7 +70,7 @@ input { font: inherit; width: 100%; padding: .65rem .75rem; border: 1px solid va
 .entrada .olho { position: absolute; right: .15rem; top: 50%; transform: translateY(-50%); min-height: 2.5rem; min-width: 2.5rem; padding: 0; background: none; color: var(--suave); display: grid; place-items: center; }
 input:focus-visible, button:focus-visible { outline: 3px solid color-mix(in srgb, var(--primaria) 55%, transparent); outline-offset: 1px; }
 button { font: inherit; font-weight: 600; padding: .7rem 1rem; border: 0; border-radius: .5rem; background: var(--primaria); color: var(--primaria-texto); cursor: pointer; }
-button:disabled { opacity: .6; cursor: wait; }
+button:disabled { opacity: .6; cursor: not-allowed; }
 button.link { background: none; color: var(--primaria); padding: 0 .1rem; min-height: 2.75rem; font-weight: 500; }
 .erro { color: var(--erro); margin: 0; font-size: .9rem; }
 .ok { color: var(--ok); margin: 0; font-size: .9rem; }
@@ -94,6 +94,74 @@ button.secundario { background: none; color: var(--primaria); border: 1px solid 
 .secao.larga { column-span: all; }
 .secao.perigo { border-color: var(--erro); }
 button.perigo { background: var(--erro); color: var(--fundo); }
+
+/* Estudo: barra de porcentagem (sem estilo inline, a CSP proíbe), tópicos em revisão */
+.barra { width: 100%; max-width: 32rem; height: 1rem; appearance: none; border: 1px solid var(--borda); border-radius: 999px; background: var(--cartao); overflow: hidden; }
+.barra::-webkit-progress-bar { background: var(--cartao); }
+.barra::-webkit-progress-value { background: var(--primaria); }
+.barra::-moz-progress-bar { background: var(--primaria); }
+.topicos { list-style: none; padding: 0; display: grid; gap: .8rem; max-width: 44rem; margin: 0 0 1rem; }
+.topico { background: var(--cartao); border: 1px solid var(--borda); border-radius: .8rem; padding: .9rem 1.1rem; }
+.aviso-ia { max-width: 44rem; margin: 0 0 1rem; padding: .6rem .9rem; border: 1px solid var(--primaria); border-left-width: 4px; border-radius: .5rem; background: color-mix(in srgb, var(--primaria) 10%, transparent); }
+.topico .faixa { margin: .4rem 0; }
+.topico .faixa input[type="number"] { display: inline-block; width: 5.5rem; padding: .35rem .5rem; margin: 0 .2rem; }
+.topico .faixa .sub { margin: 0; }
+.acoes-linha { display: flex; flex-wrap: wrap; gap: .5rem; margin: .5rem 0; }
+button.secundario { background: none; color: var(--primaria); border: 1px solid var(--primaria); }
+/* barra de salvar: fixa no pé da tela, para não obrigar a rolar uma lista longa até o botão (principalmente no celular) */
+.barra-acoes { position: sticky; bottom: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem .75rem; max-width: 44rem; padding: .75rem 0; background: var(--fundo); border-top: 1px solid var(--borda); }
+.barra-acoes .estado-salvar { flex: 1 1 10rem; min-width: 0; }
+.barra-acoes p { margin: 0; }
+@media (max-width: 30rem) {
+  /* celular: texto do estado em cima e os dois botões lado a lado (a barra fixa ocupa menos da tela) */
+  .barra-acoes { padding: .5rem 0; gap: .4rem; }
+  .barra-acoes .estado-salvar { flex-basis: 100%; }
+  .barra-acoes button { flex: 1 1 0; padding: .6rem .5rem; }
+}
+.trechos { padding-left: 1.6rem; display: grid; gap: .4rem; font-size: .9rem; }
+details summary { cursor: pointer; min-height: 2.75rem; display: flex; align-items: center; gap: .4rem; list-style: none; color: var(--primaria); font-weight: 500; }
+details summary::-webkit-details-marker { display: none; }
+details summary::before { content: '▸'; }
+details[open] summary::before { content: '▾'; }
+
+/* seletor e arquivo no mesmo desenho dos campos de texto (o padrão do navegador é cinza, pequeno e fora do tema) */
+select { font: inherit; width: 100%; min-height: 2.75rem; padding: .55rem .75rem; border: 1px solid var(--borda); border-radius: .5rem; background: var(--fundo); color: var(--texto); }
+select:focus-visible { outline: 3px solid color-mix(in srgb, var(--primaria) 55%, transparent); outline-offset: 1px; }
+input[type="file"] { padding: .45rem; }
+input[type="file"]::file-selector-button { font: inherit; font-weight: 600; margin-right: .75rem; padding: .45rem .8rem; border: 0; border-radius: .4rem; background: var(--primaria); color: var(--primaria-texto); cursor: pointer; }
+
+/* barra de uso de IA no cabeçalho (todas as telas internas) */
+.uso-barra { position: relative; flex: 0 1 11rem; min-width: 8rem; }
+.uso-botao { display: flex; align-items: center; gap: .5rem; width: 100%; min-height: 2.75rem; padding: 0 .25rem; background: none; color: var(--suave); font-size: .8rem; font-weight: 500; }
+.uso-botao:hover { color: var(--texto); }
+progress.uso { flex: 1; width: auto; min-width: 3rem; max-width: none; height: .6rem; }
+progress.uso.ok::-webkit-progress-value { background: var(--ok); }
+progress.uso.ok::-moz-progress-bar { background: var(--ok); }
+progress.uso.atencao::-webkit-progress-value { background: var(--aviso); }
+progress.uso.atencao::-moz-progress-bar { background: var(--aviso); }
+progress.uso.esgotado::-webkit-progress-value { background: var(--erro); }
+progress.uso.esgotado::-moz-progress-bar { background: var(--erro); }
+.uso-painel { position: absolute; z-index: 20; top: 100%; left: 0; width: 18rem; max-width: calc(100vw - 32px); padding: .75rem .9rem; background: var(--cartao); border: 1px solid var(--borda); border-radius: .7rem; box-shadow: var(--sombra); }
+.uso-linha { display: grid; grid-template-columns: 5.5rem 1fr; align-items: center; gap: .15rem .6rem; margin: 0 0 .6rem; font-size: .85rem; }
+.uso-linha small { grid-column: 1 / -1; color: var(--suave); }
+.uso-painel .erro { margin: 0; font-size: .85rem; }
+@media (max-width: 40rem) { .uso-barra { flex-basis: 100%; order: 3; } }  /* celular: a barra ocupa uma linha própria, abaixo da marca e do menu */
+
+/* lista de materiais do início */
+.titulo-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .5rem 1rem; max-width: 40rem; }
+.titulo-linha h2 { margin: 1rem 0 .5rem; }
+.materiais { list-style: none; padding: 0; display: grid; gap: .5rem; max-width: 40rem; }
+.materiais li { background: var(--cartao); border: 1px solid var(--borda); border-radius: .6rem; padding: .6rem 1rem .75rem; }
+.material-linha { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .25rem .75rem; }
+.material-linha .nome { text-align: left; overflow-wrap: anywhere; font-weight: 600; }
+.materiais small { display: block; }
+.materiais small.sub { margin: .2rem 0 0; }
+.materiais .motivo { margin: .35rem 0 0; font-size: .9rem; color: var(--suave); }
+.selo-status { font-size: .75rem; font-weight: 600; border: 1px solid currentColor; border-radius: 999px; padding: .05rem .55rem; white-space: nowrap; color: var(--suave); }
+.selo-status.pronto { color: var(--ok); }
+.selo-status.falhou { color: var(--erro); }
+.selo-status.processando, .selo-status.pendente { color: var(--primaria); }
+
 
 /* modo de alto contraste: o estado "selecionado" não pode depender só de cor de fundo */
 @media (forced-colors: active) {

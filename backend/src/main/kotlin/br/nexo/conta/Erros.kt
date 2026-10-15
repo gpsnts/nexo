@@ -10,12 +10,15 @@ import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 
-class ErroNegocio(val status: HttpStatus, override val message: String, val codigo: String? = null) : RuntimeException(message)
+class ErroNegocio(val status: HttpStatus, override val message: String, val codigo: String? = null, val extras: Map<String, Any> = emptyMap()) : RuntimeException(message)
 
 @RestControllerAdvice
 class TratadorErros {
     @ExceptionHandler(ErroNegocio::class)
-    fun negocio(e: ErroNegocio) = ResponseEntity.status(e.status).body(listOfNotNull("mensagem" to e.message, e.codigo?.let { "codigo" to it }).toMap())
+    fun negocio(e: ErroNegocio): ResponseEntity<Map<String, Any>> {
+        val base: Map<String, Any> = listOfNotNull("mensagem" to e.message, e.codigo?.let { "codigo" to it }).toMap()
+        return ResponseEntity.status(e.status).body(base + e.extras)
+    }
 
     @ExceptionHandler(MethodArgumentNotValidException::class)
     fun validacao(e: MethodArgumentNotValidException) = ResponseEntity.badRequest()
@@ -33,6 +36,21 @@ class TratadorErros {
 
     @ExceptionHandler(NoResourceFoundException::class)
     fun naoEncontrado(e: NoResourceFoundException) = erro(HttpStatus.NOT_FOUND, "Não encontrado.", "nao_encontrado")
+
+    // Parâmetro ou parte ausente/malformada: 400 no mesmo formato {mensagem, codigo} (antes: 500 sem `arquivo` e corpo padrão do Spring no UUID inválido).
+    @ExceptionHandler(
+        org.springframework.web.method.annotation.MethodArgumentTypeMismatchException::class,
+        org.springframework.web.bind.MissingServletRequestParameterException::class,
+        org.springframework.web.multipart.support.MissingServletRequestPartException::class,
+        org.springframework.web.multipart.MultipartException::class,
+    )
+    fun parametroInvalido(e: Exception): ResponseEntity<Map<String, String>> {
+        if (e is org.springframework.web.multipart.MaxUploadSizeExceededException) return arquivoGrande(e)
+        return erro(HttpStatus.BAD_REQUEST, "Requisição inválida: confira os dados enviados.", "dados_invalidos")
+    }
+
+    @ExceptionHandler(org.springframework.web.multipart.MaxUploadSizeExceededException::class)
+    fun arquivoGrande(e: org.springframework.web.multipart.MaxUploadSizeExceededException) = erro(HttpStatus.CONTENT_TOO_LARGE, "O arquivo é grande demais.", "arquivo_grande")
 
     private fun erro(status: HttpStatus, mensagem: String, codigo: String) = ResponseEntity.status(status).body(mapOf("mensagem" to mensagem, "codigo" to codigo))
 }

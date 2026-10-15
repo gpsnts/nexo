@@ -31,6 +31,7 @@ class ContaService(
     private val props: NexoProperties,
     private val relogio: Clock,
     private val auditoria: Auditoria,
+    private val arquivos: br.nexo.material.RemocaoArquivos,
 ) {
     // ---- recuperação de senha (sem login) ----
 
@@ -131,7 +132,10 @@ class ContaService(
         if (confirmacao != "EXCLUIR") throw ErroNegocio(HttpStatus.BAD_REQUEST, "Digite EXCLUIR para confirmar.", "confirmacao_invalida")
         val u = atual()
         exigirSenha(u, senha)
-        tx.executeWithoutResult { usuarios.deleteById(u.id) }
+        tx.executeWithoutResult {
+            usuarios.deleteById(u.id)
+            arquivos.depoisDoCommit(pastas = listOf(u.id.toString()))  // regra 7: os arquivos da conta saem só depois do commit
+        }
         auditoria.registrar("conta_excluida", u.id)
     }
 

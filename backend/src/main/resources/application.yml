@@ -10,6 +10,9 @@ spring:
     username: nexo_app   # nunca o papel dono: a RLS não vale para ele
     password: ${NEXO_APP_SENHA:}
   jpa.open-in-view: false
+  servlet.multipart:
+    max-file-size: 21MB     # o limite de 20 MB do produto é conferido no código (nexo.tamanho-maximo-mb); aqui só o teto do parser
+    max-request-size: 22MB
   flyway.enabled: false  # migrações rodam no serviço "migracao" do compose, com o papel dono
 
 management.endpoints.web.exposure.include: health
@@ -22,13 +25,14 @@ nexo:
   formatos-aceitos: [pdf, docx, txt]
   tamanho-maximo-mb: 20
   paginas-maximas: 50
-  limite-operacoes-por-hora: 30
+  limite-operacoes-por-hora: 30        # operações com IA (registros em registro_geracao) por usuário na janela abaixo
+  janela-operacoes: PT1H
   tentativas-por-questao: 3
   questoes-por-sessao-revisao: 20
   fuso: America/Sao_Paulo
   limiar-similaridade-repeticao: 0.90
   figuras-por-material: 30
-  limite-gasto-usd: 10      # valor provisório: decisão em aberto 3 do CLAUDE.md
+  limite-gasto-usd: 10      # confirmado (ADR 0029): US$ 10 por 30 dias
   janela-gasto: P30D
   revisao:
     repeticoes-inicial: 0
@@ -41,6 +45,26 @@ nexo:
     intervalo-maximo: 365
   processamento:
     url: http://localhost:8000
+    # segredo vem de NEXO_PROCESSAMENTO_SEGREDO (o mesmo do serviço Python); sem valor padrão de propósito
+    timeout: PT2M                         # extração de um material de 50 páginas
+    tentativas: 3                         # 5xx e falha de rede; 4xx não é repetido
+    espera: PT1S                          # multiplicada pelo número da tentativa
+  material:
+    diretorio: ./dados/arquivos           # volume do compose em /dados/arquivos (ADR 0024)
+    assincrono: true                      # indexação em executor próprio; só os testes rodam na hora
+    threads: 2
+    fila: 50
+    simultaneos-por-usuario: 2            # materiais pendentes ou processando por usuário
+    envios-simultaneos: 4                 # POST /materiais em curso no servidor todo (cada um segura ~60 MB de arquivo em memória)
+    caracteres-por-pagina: 3000           # estimativa de páginas de DOCX e TXT (ADR 0024)
+    lote-embeddings: 64
+    pulso-maximo: PT5M                    # sem progresso por este tempo e sem tarefa viva: material vira falhou/interrompido
+    trechos-minimos-por-topico: 2         # divisão por estrutura: seção menor que isto se junta à vizinha
+    trechos-por-topico-plano-b: 15        # divisão em blocos iguais quando o modelo não propõe tópicos válidos
+    max-topicos: 100
+    esperas-remocao: [PT1S, PT10S, PT1M]  # novas tentativas de apagar arquivo depois do commit
+    precos-embedding-usd-por-milhao:      # modelo desconhecido (ou falso) custa 0
+      text-embedding-3-small: 0.02
   jwt:
     # segredo vem de NEXO_JWT_SEGREDO (mín. 32 caracteres); sem valor padrão de propósito
     validade-acesso: PT15M
