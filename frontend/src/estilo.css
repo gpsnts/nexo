@@ -171,3 +171,63 @@ progress.uso.esgotado::-moz-progress-bar { background: var(--erro); }
 }
 
 @media (prefers-reduced-motion: no-preference) { button { transition: opacity .15s; } }
+
+/* Tópico: resumo e questões (F3) */
+.texto-longo { white-space: pre-wrap; }
+.questoes { padding-left: 1.25rem; }
+.questao { margin-bottom: 1rem; }
+.questao ul { list-style: none; padding-left: 0; }
+.questao .correta { font-weight: 600; }
+.linha-gerar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem; }
+.linha-gerar input { width: 6rem; flex: none; }
+.questoes { list-style: none; padding: 0; margin: 1rem 0 0; display: grid; gap: .75rem; counter-reset: q; }
+.questao { counter-increment: q; background: var(--cartao); border: 1px solid var(--borda); border-radius: .8rem; padding: .9rem 1.1rem; margin: 0; }
+.questao > p { margin: 0 0 .5rem; font-weight: 600; }
+.questao > p::before { content: counter(q) ". "; color: var(--suave); }
+.questao ul li { padding: .15rem 0; }
+.questao .correta { color: var(--primaria); }
+
+/* Revisão visual da F3 (rodada 3) */
+.rotulo { display: block; font-size: .9rem; color: var(--suave); margin-bottom: .3rem; }
+.linha-gerar { align-items: center; }
+.dica { margin: .5rem 0 0; font-size: .85rem; }
+.secao .barra, .secao [role="alert"], .secao [role="status"] { margin-top: .9rem; }
+.secao [role="alert"] .erro { margin: 0 0 .6rem; }
+
+/* assuntos na tela inicial: etiquetas compactas (a organização de assuntos é da F5, ADR 0036) */
+.chips { list-style: none; padding: 0; margin: 0 0 1rem; display: flex; flex-wrap: wrap; gap: .5rem; }
+.chips li { background: var(--cartao); border: 1px solid var(--borda); border-radius: 999px; padding: .3rem .85rem; }
+
+/* revisão da rodada 5: cancelar, aviso de geração parada e resumos anteriores */
+.secundario.cancelar { color: var(--erro); border-color: var(--erro); }
+.aviso-parada { border-left: 4px solid var(--erro); padding-left: .6rem; }
+.anteriores { margin-top: .75rem; }
+.anteriores summary { cursor: pointer; color: var(--primaria); }
+
+/* lista única de estudos (material e tópico livre) e cancelar com mais presença */
+.selo-tipo { font-size: .75rem; color: var(--suave); border: 1px solid var(--borda); border-radius: 999px; padding: .05rem .5rem; white-space: nowrap; }
+.secundario.cancelar { border-width: 2px; font-weight: 700; }
+
+/* revisão da rodada 6: lista de estudos em colunas, selos juntos, controle de arquivo próprio */
+.titulo-linha { max-width: none; }
+.materiais { max-width: none; grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); align-items: start; }
+.selos { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; margin-left: auto; }
+.materiais li > .secundario { margin-top: .5rem; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.arquivo { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; position: relative; }
+.botao-arquivo { font-weight: 600; padding: .55rem .9rem; border: 1px solid var(--primaria); border-radius: .5rem; color: var(--primaria); cursor: pointer; }
+.arquivo:focus-within .botao-arquivo { outline: 2px solid var(--primaria); outline-offset: 2px; }
+.arquivo .sub { margin: 0; overflow-wrap: anywhere; }
+
+/* rodada 7: índice do perfil e foco em âncoras */
+.indice { display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin: .25rem 0 1rem; }
+.secao { scroll-margin-top: 1rem; }
+
+/* texto vindo do modelo ou do material (URLs, código, fórmulas) não pode estourar o cartão nem a página */
+.texto-longo, .questao, .anteriores { overflow-wrap: anywhere; }
+.secao { min-width: 0; }
+.questoes { grid-template-columns: minmax(0, 1fr); }
+.questao { min-width: 0; }
+
+/* aviso de que o conteúdo vai a um serviço externo de IA (ADR 0040) */
+.privacidade { border-left: 3px solid var(--borda); padding-left: .6rem; font-size: .88rem; }

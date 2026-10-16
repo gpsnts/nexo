@@ -48,11 +48,12 @@ test('arquivo com formato inválido é barrado no cliente, sem chamar a API', as
 test('envia multipart com o assunto, abre o material e a barra sobe até os tópicos', async () => {
   irPara('/novo-estudo')
   let n = 0
+  let liberar = false // o processamento só termina depois que o teste viu a barra: com poll de 5 ms ela some rápido demais e o teste ficava intermitente
   const chamadas = servidor({
     ...base,
     'POST /materiais': [202, { materialId: ID }],
-    [`GET /materiais/${ID}`]: () => (n < 3 ? material('processando') : material('pronto')),
-    [`GET /materiais/${ID}/andamento`]: () => { n++; return n < 3 ? [200, { status: 'processando', etapa: 'embeddings', percentual: 40 * n, motivoFalha: null }] : [200, { status: 'pronto', etapa: 'concluido', percentual: 100, motivoFalha: null }] },
+    [`GET /materiais/${ID}`]: () => (!liberar ? material('processando') : material('pronto')),
+    [`GET /materiais/${ID}/andamento`]: () => { n++; return !liberar ? [200, { status: 'processando', etapa: 'embeddings', percentual: Math.min(90, 40 * n), motivoFalha: null }] : [200, { status: 'pronto', etapa: 'concluido', percentual: 100, motivoFalha: null }] },
     [`GET /materiais/${ID}/topicos`]: [200, topicosIniciais],
   })
   render(<App />)
@@ -62,6 +63,7 @@ test('envia multipart com o assunto, abre o material e a barra sobe até os tóp
 
   const barra = await screen.findByRole('progressbar', { name: 'Andamento do processamento' })
   expect(barra.getAttribute('aria-label')).toBe('Andamento do processamento')
+  liberar = true
   const envio = chamadas.find((c) => c.chave === 'POST /materiais')!
   expect(envio.corpo).toBeInstanceOf(FormData)
   expect((envio.corpo as FormData).get('assuntoId')).toBe('f')
@@ -111,9 +113,9 @@ test('arquivo repetido oferece abrir o material existente', async () => {
   expect(await screen.findByRole('link', { name: 'Abrir o material já enviado' })).toBeTruthy()
 })
 
-test('tópico livre: nome vazio é recusado e depois é registrado (UC03)', async () => {
+test('tópico livre: nome vazio é recusado e depois é registrado e abre o tópico (UC03)', async () => {
   irPara('/novo-estudo')
-  const chamadas = servidor({ ...base, 'POST /topicos': [201, { id: 't', nome: 'MRU', ordem: 1 }] })
+  const chamadas = servidor({ ...base, 'POST /topicos': [201, { id: '22222222-2222-2222-2222-222222222222', nome: 'MRU', ordem: 1 }] })
   render(<App />)
   await screen.findByRole('heading', { name: 'Informar tópico' })
   clicar('Registrar tópico')
@@ -121,7 +123,7 @@ test('tópico livre: nome vazio é recusado e depois é registrado (UC03)', asyn
   expect(chamadas.some((c) => c.chave === 'POST /topicos')).toBe(false)
   fireEvent.change(screen.getByLabelText('Tópico'), { target: { value: ' MRU ' } })
   clicar('Registrar tópico')
-  expect((await screen.findByRole('status')).textContent).toContain('"MRU" registrado')
+  await waitFor(() => expect(window.location.pathname).toBe('/topicos/22222222-2222-2222-2222-222222222222')) // o próximo passo (gerar resumo e questões) é no tópico
   expect(chamadas.find((c) => c.chave === 'POST /topicos')!.corpo).toEqual({ nome: 'MRU', assuntoId: null })
 })
 
@@ -160,12 +162,12 @@ test('revisão: mostra as páginas de cada tópico, avisa alterações não salv
   render(<App />)
   await screen.findByLabelText('Nome do tópico 1')
   expect(await screen.findByText(/págs\. 1 a 2/)).toBeTruthy()   // tópico 1: trechos 1 a 4 -> páginas 1 e 2
-  expect(screen.queryByText('Alterações não salvas.')).toBeNull()
+  expect(screen.queryByText(/Alterações não salvas/)).toBeNull()
   const antes = new Event('beforeunload', { cancelable: true })
   window.dispatchEvent(antes)
   expect(antes.defaultPrevented).toBe(false)   // sem alterações, sair não pergunta nada
   fireEvent.change(screen.getByLabelText('Nome do tópico 1'), { target: { value: 'Novo nome' } })
-  expect(screen.getByText('Alterações não salvas.')).toBeTruthy()
+  expect(screen.getByText(/Alterações não salvas/)).toBeTruthy()
   const depois = new Event('beforeunload', { cancelable: true })
   window.dispatchEvent(depois)
   expect(depois.defaultPrevented).toBe(true)   // com alterações, o navegador pergunta
@@ -226,6 +228,23 @@ test('revisão: tratar como um tópico só e ver os trechos de um tópico', asyn
   expect(chamadas.some((c) => c.chave.startsWith('PUT'))).toBe(false)
 })
 
+test('revisão: tirar um tópico do estudo mostra os trechos de fora, permite voltar a usá-los e manda a lista com lacuna', async () => {
+  const chamadas = telaDeRevisao()
+  render(<App />)
+  await screen.findByLabelText('Nome do tópico 2')
+  clicar('Tirar o tópico 1 do estudo')
+  expect(screen.getByText(/Fora dos tópicos.*trechos 1 a 4/)).toBeTruthy()
+  clicar('Voltar a usar os trechos 1 a 4')
+  expect(screen.queryByText(/Fora dos tópicos/)).toBeNull()
+  expect((screen.getByLabelText('Nome do tópico 1') as HTMLInputElement).value).toBe('Trechos 1 a 4')
+  clicar('Desfazer alterações')
+  clicar('Tirar o tópico 1 do estudo')
+  expect((screen.getByRole('button', { name: 'Tirar o tópico 1 do estudo' }) as HTMLButtonElement).disabled).toBe(true) // sobrou um só
+  clicar('Confirmar tópicos')
+  expect(await screen.findByText('Tópicos salvos.')).toBeTruthy()
+  expect(chamadas.find((c) => c.chave.startsWith('PUT'))!.corpo.topicos).toEqual([{ id: 'b', nome: 'Desenvolvimento', inicio: 5, fim: 10 }])
+})
+
 test('revisão: tópico com conteúdo gerado trava limites, unir e dividir, mas aceita novo nome', async () => {
   const chamadas = telaDeRevisao(undefined, topicosIniciais.map((t) => (t.id === 'a' ? { ...t, temConteudo: true } : t)))
   render(<App />)
@@ -277,7 +296,7 @@ test('IA: rascunho com faixa nova e faixa mantida, aviso e confirmação pelo PU
   expect(screen.queryByText(/Salve ou desfaça suas alterações/)).toBeNull()
   expect((screen.getByLabelText('Nome do tópico 2') as HTMLInputElement).value).toBe('Aplicações')
   expect(screen.getByLabelText('Nome do tópico 3')).toBeTruthy()
-  expect(screen.getByText('Alterações não salvas.')).toBeTruthy()
+  expect(screen.getByText(/Alterações não salvas/)).toBeTruthy()
   expect(chamadas.some((c) => c.chave.startsWith('PUT'))).toBe(false) // rascunho: nada gravado
   clicar('Confirmar tópicos')
   await screen.findByText('Tópicos salvos.')
@@ -314,7 +333,7 @@ test('IA: sem mudança mostra aviso e não deixa alteração pendente', async ()
   await screen.findByLabelText('Nome do tópico 1')
   clicar('Reorganizar com IA')
   expect((await screen.findByText(/manteve a divisão atual/)).textContent).toBeTruthy()
-  expect(screen.queryByText('Alterações não salvas.')).toBeNull()
+  expect(screen.queryByText(/Alterações não salvas/)).toBeNull()
   void base
 })
 
@@ -328,7 +347,7 @@ test('IA: indisponível ou proposta inválida mostra a mensagem e mantém a divi
   clicar('Reorganizar com IA')
   expect((await screen.findByRole('alert')).textContent).toContain('Nada foi alterado')
   expect((screen.getByLabelText('Nome do tópico 1') as HTMLInputElement).value).toBe('Introdução')
-  expect(screen.queryByText('Alterações não salvas.')).toBeNull()
+  expect(screen.queryByText(/Alterações não salvas/)).toBeNull()
 })
 
 test('IA: botão fica desabilitado com alterações não salvas e explica por quê', async () => {
@@ -403,7 +422,7 @@ test('barra de uso não aparece nas telas de entrada nem quando o uso não carre
   irPara('/')
   servidor({ ...base, 'GET /uso': [500, { mensagem: 'x' }] })
   render(<App />)
-  expect(await screen.findByText(/ainda não enviou nenhum material/)).toBeTruthy()
+  expect(await screen.findByText(/ainda não tem nenhum estudo/)).toBeTruthy()
   expect(screen.queryByRole('progressbar', { name: 'Uso de IA' })).toBeNull()
 })
 
@@ -437,7 +456,7 @@ test('IA: limite de gasto na reorganização mostra a mensagem e mantém a divis
   await screen.findByLabelText('Nome do tópico 1')
   clicar('Reorganizar com IA')
   expect((await screen.findByRole('alert')).textContent).toContain('bloqueadas até 12/11/2026')
-  expect(screen.queryByText('Alterações não salvas.')).toBeNull()
+  expect(screen.queryByText(/Alterações não salvas/)).toBeNull()
 })
 
 test('início lista os materiais com o status e abre um deles', async () => {

@@ -39,7 +39,7 @@ class EmailTesteConfig {
 // Testes rodam sem segundo plano (e-mails aparecem na hora) e com limite de taxa alto; LimiteTaxaTest baixa o limite.
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = ["nexo.conta.assincrono=false", "nexo.material.assincrono=false", "nexo.limite-publico.requisicoes=100000"],
+    properties = ["nexo.conta.assincrono=false", "nexo.material.assincrono=false", "nexo.geracao.assincrono=false", "nexo.limite-publico.requisicoes=100000"],
 )
 @org.springframework.context.annotation.Import(EmailTesteConfig::class)
 abstract class BaseIntegracao {
@@ -77,6 +77,8 @@ abstract class BaseIntegracao {
             r.add("nexo.processamento.url") { python.url }
             r.add("nexo.processamento.segredo") { SEGREDO_INTERNO }
             r.add("nexo.processamento.espera") { "PT0.01S" }
+            r.add("nexo.processamento.cache-modelos") { "PT0S" }  // os testes trocam o nome do modelo no serviço falso: sem cache
+            r.add("nexo.geracao.contexto-max-caracteres") { "300" }  // pequeno, para exercitar a busca vetorial com poucos trechos
             r.add("nexo.material.diretorio") { arquivos.toString() }
             r.add("nexo.material.esperas-remocao") { "PT0.05S,PT0.05S" }
         }

@@ -1,3 +1,4 @@
+import { useDevolverFoco } from './foco'
 import { useState, type FormEvent } from 'react'
 import { api, ErroApi } from './api'
 import Campo from './Campo'
@@ -14,6 +15,7 @@ export default function LinkDeEmail({ tipo, token, aoConcluir, aoPedirNovo }: {
   const [erro, setErro] = useState('')
   const [pronto, setPronto] = useState(false)
   const [enviando, setEnviando] = useState(false)
+  const botao = useDevolverFoco(enviando)
   const [erroSenha, setErroSenha] = useState('')
   const [invalido, setInvalido] = useState(token === null) // sem token (ex.: página recarregada: o token sai da URL por segurança)
 
@@ -61,7 +63,7 @@ export default function LinkDeEmail({ tipo, token, aoConcluir, aoPedirNovo }: {
             {tipo === 'verificar' && <p className="sub">Confirme que este e-mail é seu para ativar a conta.</p>}
             {tipo === 'redefinir' && <Campo rotulo="Nova senha" valor={novaSenha} mudar={(v) => { setNovaSenha(v); setErroSenha('') }} tipo="password" auto="new-password" dica="Mínimo de 8 caracteres." erro={erroSenha} focar />}
             {erro && <p role="alert" className="erro">{erro}</p>}
-            <button type="submit" disabled={enviando}>{enviando ? 'Aguarde…' : tipo === 'redefinir' ? 'Salvar nova senha' : tipo === 'verificar' ? 'Ativar conta' : 'Confirmar novo e-mail'}</button>
+            <button ref={botao} type="submit" disabled={enviando}>{enviando ? 'Aguarde…' : tipo === 'redefinir' ? 'Salvar nova senha' : tipo === 'verificar' ? 'Ativar conta' : 'Confirmar novo e-mail'}</button>
           </form>
         )}
       </main>

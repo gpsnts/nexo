@@ -168,7 +168,7 @@ def test_txt_que_comeca_com_pk_continua_sendo_texto(cliente):
 def test_cliente_da_openai_e_reaproveitado(monkeypatch):
     from nexo_processamento.config import criar_embedding
 
-    monkeypatch.setenv("EMBEDDING_PROVEDOR", "openai")
+    monkeypatch.setenv("MODELO_EMBEDDING_PROVEDOR", "openai")
     monkeypatch.setenv("OPENAI_API_KEY", "k")
     assert criar_embedding() is criar_embedding()
 
@@ -273,7 +273,7 @@ def test_prompt_de_reorganizar_leva_atuais_congelados_e_estrutura():
 
     p = _prompt_refinar([{"ordem": i, "nivel": 1 if i == 1 else None, "titulo": "Cap" if i == 1 else None, "inicio": "x"} for i in range(1, 7)], ATUAIS)
     assert "ATUAIS_JSON: " in p and '"congelado": true' in p and "congelado=true devem ser mantidos EXATAMENTE" in p
-    assert "1\t1\tCap\tx" in p and "TODOS os trechos de 1 a 6" in p
+    assert "1\t1\tCap\tx" in p and "trechos de 1 a 6" in p
 
 
 def test_refinar_aceita_proposta_valida_que_preserva_congelados():
@@ -287,7 +287,7 @@ def test_refinar_recusa_cobertura_ruim_e_tocar_em_congelado():
     from nexo_processamento.topicos import refinar
 
     for ruim in (
-        '[{"nome":"A","inicio":1,"fim":4}]',                                          # não cobre até o fim
+        '[{"nome":"A","inicio":1,"fim":4},{"nome":"B","inicio":4,"fim":6}]',          # sobreposição
         '[{"nome":"A","inicio":1,"fim":3},{"nome":"B","inicio":4,"fim":6}]',          # mexeu no congelado (5-6)
         "sem json",
     ):
@@ -302,3 +302,78 @@ def test_modelo_falso_devolve_a_divisao_atual_na_reorganizacao(cliente):
 
 def test_reorganizar_exige_o_segredo_interno(cliente):
     assert cliente.post("/interno/reorganizar", json={"trechos": [{"ordem": 1}], "atuais": ATUAIS}).status_code == 401
+
+
+def test_recusa_da_reorganizacao_loga_o_motivo_sem_o_texto(caplog):
+    import logging
+
+    from nexo_processamento.topicos import refinar
+
+    class Modelo:
+        nome = "m"
+
+        def gerar(self, prompt, imagens=None):
+            return RespostaLinguagem('[{"nome": "SEGREDO-DO-MATERIAL", "inicio": 1, "fim": 5}, {"nome": "B", "inicio": 5, "fim": 10}]', 1, 1)
+
+    trechos = [{"ordem": i} for i in range(1, 11)]
+    with caplog.at_level(logging.WARNING, logger="nexo.processamento"):
+        assert refinar(Modelo(), trechos, [{"nome": "A", "inicio": 1, "fim": 10}]).topicos == []
+    texto = " ".join(r.getMessage() for r in caplog.records)
+    assert "tópico 2" in texto and "esperava início a partir de 6" in texto
+    assert "SEGREDO-DO-MATERIAL" not in texto  # só a estrutura vai para o log
+
+
+def test_modelo_informa_so_os_inicios_e_o_codigo_calcula_os_fins():
+    from nexo_processamento.topicos import _ler_json, _prompt, _prompt_refinar, refinar, sugerir
+
+    assert _ler_json('[{"nome": "A", "inicio": 1}, {"nome": "B", "inicio": 8}, {"nome": "C", "inicio": 20}]', 30) == [
+        {"nome": "A", "inicio": 1, "fim": 7}, {"nome": "B", "inicio": 8, "fim": 19}, {"nome": "C", "inicio": 20, "fim": 30}]
+    assert _ler_json('[{"nome": "A", "inicio": 1}, {"nome": "B", "inicio": 1}, {"nome": "C", "inicio": 4}]', 6) == [
+        {"nome": "A", "inicio": 1, "fim": 3}, {"nome": "C", "inicio": 4, "fim": 6}]   # início repetido: fica o primeiro
+    assert _ler_json('[{"nome": "A", "inicio": 9}, {"nome": "B", "inicio": 3}]', 30) == []
+    assert _ler_json('[{"nome": "A", "inicio": 1}]') == []                                  # sem o total não há como calcular o último fim
+    assert _ler_json('[{"nome": "A", "inicio": 1, "fim": 3}, {"nome": "B", "inicio": 4, "fim": 9}]', 9)[1]["fim"] == 9   # fim informado continua valendo
+    trechos = [{"ordem": i} for i in range(1, 11)]
+    assert '"fim"' not in _prompt(trechos).split("Responda só com JSON", 1)[1].split("\n")[0] and "COMEÇA" in _prompt(trechos)
+    assert "COMEÇA" in _prompt_refinar(trechos, [{"nome": "A", "inicio": 1, "fim": 10, "congelado": False}])
+
+    class Modelo:
+        nome = "m"
+
+        def gerar(self, prompt, imagens=None):
+            return RespostaLinguagem('Segue: [{"nome": "Parte 1", "inicio": 1}, {"nome": "Parte 2", "inicio": 6}]', 3, 4)
+
+    assert [(t["inicio"], t["fim"]) for t in sugerir(Modelo(), trechos).topicos] == [(1, 5), (6, 10)]
+    assert [(t["inicio"], t["fim"]) for t in refinar(Modelo(), trechos, [{"nome": "A", "inicio": 1, "fim": 10}]).topicos] == [(1, 5), (6, 10)]
+    # começar depois do trecho 1 é corrigido: o primeiro tópico passa a começar em 1
+    class SemOPrimeiro(Modelo):
+        def gerar(self, prompt, imagens=None):
+            return RespostaLinguagem('[{"nome": "X", "inicio": 3}, {"nome": "Y", "inicio": 6}]', 1, 1)
+
+    assert [(x["inicio"], x["fim"]) for x in sugerir(SemOPrimeiro(), trechos).topicos] == [(1, 5), (6, 10)]
+
+
+def test_primeiro_topico_absorve_trechos_que_o_modelo_pulou():
+    from nexo_processamento.topicos import _ler_json
+
+    assert _ler_json('[{"nome": "A", "inicio": 2}, {"nome": "B", "inicio": 4}]', 6) == [
+        {"nome": "A", "inicio": 1, "fim": 3}, {"nome": "B", "inicio": 4, "fim": 6}]
+
+
+def test_reorganizar_aceita_trechos_de_fora_mas_a_sugestao_inicial_cobre_tudo():
+    from nexo_processamento.topicos import cobre, refinar
+
+    trechos = [{"ordem": i} for i in range(1, 11)]
+
+    class Modelo:
+        nome = "m"
+
+        def gerar(self, prompt, imagens=None):
+            return RespostaLinguagem('[{"nome": "A", "inicio": 3}, {"nome": "B", "inicio": 7}]', 1, 1)
+
+    assert [(t["inicio"], t["fim"]) for t in refinar(Modelo(), trechos, [{"nome": "X", "inicio": 1, "fim": 10}]).topicos] == [(3, 6), (7, 10)]
+    assert [(t["inicio"], t["fim"]) for t in sugerir(Modelo(), trechos).topicos] == [(1, 6), (7, 10)]   # sugestão inicial: começa em 1
+    assert cobre([{"nome": "a", "inicio": 2, "fim": 3}, {"nome": "b", "inicio": 6, "fim": 8}], 10, lacunas=True)
+    assert not cobre([{"nome": "a", "inicio": 2, "fim": 3}, {"nome": "b", "inicio": 3, "fim": 8}], 10, lacunas=True)   # sobreposição
+    assert not cobre([{"nome": "a", "inicio": 1, "fim": 11}], 10, lacunas=True)                                          # passa do fim
+    assert not cobre([], 10, lacunas=True)

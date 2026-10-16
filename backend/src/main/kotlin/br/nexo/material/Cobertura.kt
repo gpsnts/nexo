@@ -5,7 +5,7 @@ import java.util.UUID
 /** Faixa de trechos de um tópico de um material. [id] nulo = tópico novo. */
 data class FaixaTopico(val id: UUID?, val nome: String, val inicio: Int, val fim: Int)
 
-/** Regra 12: a divisão cobre o material de 1 a N sem lacuna nem sobreposição. O banco só impede a sobreposição e trechos inexistentes. */
+/** Regra 12 (ADR 0042): as faixas vêm em ordem, dentro de 1 a N e sem sobreposição; trechos fora de qualquer tópico são permitidos (o estudante corta capa, sumário etc.). O banco só impede a sobreposição e trechos inexistentes. */
 object Cobertura {
     const val NOME_MAX = 200
 
@@ -19,13 +19,15 @@ object Cobertura {
             if (f.nome.isBlank()) return "O tópico $n precisa de um nome."
             if (f.nome.trim().length > NOME_MAX) return "O nome do tópico $n pode ter até $NOME_MAX caracteres."
             if (f.inicio < 1 || f.fim > totalTrechos || f.fim < f.inicio) return "O tópico $n tem limites inválidos (o material tem $totalTrechos trechos)."
-            if (f.inicio > esperado) return "Faltam os trechos $esperado a ${f.inicio - 1}: o tópico $n começa depois do fim do anterior."
             if (f.inicio < esperado) return "O tópico $n se sobrepõe ao anterior."
             esperado = f.fim + 1
         }
-        if (esperado != totalTrechos + 1) return "Faltam os trechos $esperado a $totalTrechos no fim do material."
         return null
     }
+
+    /** Divisão automática (estrutura, modelo, blocos): além de [validar], cobre o material inteiro, de 1 a N, sem lacuna. Só o estudante deixa trechos de fora. */
+    fun cobreTudo(faixas: List<FaixaTopico>, totalTrechos: Int, maxTopicos: Int): Boolean =
+        validar(faixas, totalTrechos, maxTopicos) == null && faixas.first().inicio == 1 && faixas.last().fim == totalTrechos && faixas.zipWithNext().all { (a, b) -> b.inicio == a.fim + 1 }
 
     /**
      * Tópicos pela ESTRUTURA do documento (sem IA): cada título do nível mais alto que gere pelo menos duas seções abre um tópico.

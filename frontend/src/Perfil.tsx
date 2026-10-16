@@ -20,6 +20,9 @@ export default function Perfil({ nome: nomeAtual, aoIrInicio, aoSair, aoExcluir,
       <main id="conteudo" tabIndex={-1}>
         <h1 tabIndex={-1}>Meu perfil</h1>
         {dados && <p className="sub">{dados.email}</p>}
+        <nav aria-label="Seções do perfil" className="indice">
+          <a href="#secao-dados">Dados pessoais</a><a href="#secao-email">E-mail</a><a href="#secao-senha">Senha</a><a href="#secao-sessoes">Sessões</a><a href="#secao-excluir">Excluir conta</a>
+        </nav>
         <div className="grade">
           <DadosPessoais nomeInicial={dados?.nome ?? nomeAtual} key={dados?.nome ?? nomeAtual} aoSalvar={(d) => { setDados(d); aoAtualizarNome(d.nome) }} />
           <TrocaEmail email={dados?.email ?? ''} />

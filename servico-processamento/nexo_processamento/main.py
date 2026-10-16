@@ -2,14 +2,24 @@ import hmac
 import os
 
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse
+from typing import Annotated
 
-from nexo_processamento import extracao, topicos
+from pydantic import BaseModel, Field, StringConstraints
+
+from nexo_processamento import extracao, geracao, topicos
 from nexo_processamento.config import criar_embedding, criar_linguagem
 from nexo_processamento.divisao import dividir
 from nexo_processamento.extracao import FormatoInvalido, SemTexto
+from nexo_processamento.ia.provedor import ErroProvedor
 
 app = FastAPI(title="Nexo - serviço de processamento")
+
+
+@app.exception_handler(ErroProvedor)
+def _erro_do_provedor(_, e: ErroProvedor):
+    """5xx quando vale repetir (o backend repete até 3 vezes); 424 quando não vale (chave, modelo, crédito, pedido): o backend para na hora, com o código."""
+    return JSONResponse(status_code=503 if e.retentavel else 424, content={"detail": {"codigo": e.codigo, "mensagem": str(e)}})
 
 LOTE_MAXIMO = 64
 TAMANHO_MAXIMO = int(os.getenv("PROCESSAMENTO_TAMANHO_MAXIMO", 25 * 1024 * 1024))
@@ -112,3 +122,53 @@ def sugerir_topicos(p: PedidoTopicos):
     modelo = criar_linguagem()
     pr = topicos.sugerir(modelo, [t.model_dump() for t in p.trechos])
     return {"topicos": pr.topicos, "tokens_entrada": pr.tokens_entrada, "tokens_saida": pr.tokens_saida, "modelo": modelo.nome}
+
+
+class TrechoConteudo(BaseModel):
+    ordem: int
+    conteudo: str = Field(max_length=20000)
+
+
+class PedidoResumo(BaseModel):
+    topico: str = Field(min_length=1, max_length=200)
+    trechos: list[TrechoConteudo] = Field(default_factory=list, max_length=500)
+
+
+class PedidoQuestoes(PedidoResumo):
+    quantidade: int = Field(ge=1, le=10)
+    evitar: list[Annotated[str, StringConstraints(max_length=1000)]] = Field(default_factory=list, max_length=60)
+
+
+class QuestaoVerificar(BaseModel):
+    enunciado: str = Field(min_length=1, max_length=2000)
+    alternativas: list[Annotated[str, StringConstraints(max_length=1000)]] = Field(min_length=2, max_length=5)
+    correta: int = Field(ge=0)
+
+
+class PedidoVerificar(PedidoResumo):
+    questao: QuestaoVerificar
+
+
+@app.post("/interno/resumo", dependencies=[Depends(autenticar)])
+def resumo(p: PedidoResumo):
+    modelo = criar_linguagem()
+    r = geracao.resumir(modelo, p.topico, [t.model_dump() for t in p.trechos])
+    return {"texto": r.texto, "tokens_entrada": r.tokens_entrada, "tokens_saida": r.tokens_saida, "modelo": modelo.nome}
+
+
+@app.post("/interno/questoes", dependencies=[Depends(autenticar)])
+def questoes(p: PedidoQuestoes):
+    modelo = criar_linguagem()
+    r = geracao.gerar_questoes(modelo, p.topico, [t.model_dump() for t in p.trechos], p.quantidade, p.evitar)
+    return {"questoes": r.questoes, "tokens_entrada": r.tokens_entrada, "tokens_saida": r.tokens_saida, "modelo": modelo.nome}
+
+
+@app.post("/interno/verificar", dependencies=[Depends(autenticar)])
+def verificar(p: PedidoVerificar):
+    if p.questao.correta >= len(p.questao.alternativas):
+        raise HTTPException(422, {"codigo": "dados_invalidos", "mensagem": "índice da correta fora das alternativas"})
+    modelo = criar_linguagem()
+    q = p.questao
+    r = geracao.verificar(modelo, p.topico, [t.model_dump() for t in p.trechos], q.enunciado, q.alternativas, q.correta)
+    return {"sustentada": r.sustentada, "unica_correta": r.unica_correta, "ordens": r.ordens, "motivo": r.motivo,
+            "tokens_entrada": r.tokens_entrada, "tokens_saida": r.tokens_saida, "modelo": modelo.nome}

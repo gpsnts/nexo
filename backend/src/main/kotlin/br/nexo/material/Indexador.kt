@@ -32,6 +32,7 @@ class Indexador(
     private val armazenamento: Armazenamento,
     private val topicos: TopicoService,
     private val tx: TransactionTemplate,
+    private val precos: PrecosIa,
 ) : DisposableBean {
     private val log = LoggerFactory.getLogger(javaClass)
     val ativos: MutableSet<UUID> = ConcurrentHashMap.newKeySet()
@@ -56,7 +57,7 @@ class Indexador(
             rodar(t)
         } catch (e: FalhaProcessamento) {
             log.warn("Indexação de {} falhou: {}", t.materialId, e.message)
-            falhar(t, if (e.codigo in CODIGOS_CONHECIDOS) e.codigo else "falha_ia")
+            falhar(t, when (e.codigo) { in CODIGOS_CONHECIDOS -> e.codigo; in CODIGOS_DE_CONFIGURACAO -> "configuracao_ia"; else -> "falha_ia" })
         } catch (e: Exception) {
             log.error("Indexação de {} falhou", t.materialId, e)
             falhar(t, "erro_interno")
@@ -70,7 +71,8 @@ class Indexador(
             UsuarioAtual.como(t.usuarioId) {
                 tx.executeWithoutResult {
                     dados.definirStatus(t.materialId, "falhou", motivo)
-                    dados.falharRegistrosAbertos(t.materialId)
+                    // o registro guarda o mesmo código do material (lista de V6 e V7)
+                    dados.falharRegistrosAbertos(t.materialId, if (motivo == "configuracao_ia") "falha_ia" else motivo)
                 }
             }
         }.onFailure { log.error("Não foi possível marcar {} como falhou", t.materialId, it) }
@@ -105,7 +107,7 @@ class Indexador(
                 dados.progresso(idx, 30 + 65 * (i + 1) / lotes.size)
             }
         }
-        val custo = props.material.precosEmbeddingUsdPorMilhao[modelo]?.multiply(BigDecimal(tokens))?.divide(BigDecimal(1_000_000), 6, java.math.RoundingMode.HALF_UP) ?: BigDecimal.ZERO
+        val custo = props.precoEmbedding(modelo)?.multiply(BigDecimal(tokens))?.divide(BigDecimal(1_000_000), 6, java.math.RoundingMode.HALF_UP) ?: BigDecimal.ZERO
         tx.executeWithoutResult { dados.concluirRegistro(idx, modelo, tokens, 0, custo) }
 
         sugerirTopicos(t, extracao.trechos, modeloLinguagem)
@@ -129,12 +131,12 @@ class Indexador(
             log.warn("Sugestão de tópicos de {} sem proposta ({}): usando blocos iguais", t.materialId, e.message)
         }
         val valida = proposta.map { FaixaTopico(null, it.nome, it.inicio, it.fim) }
-        if (Cobertura.validar(valida, trechos.size, props.material.maxTopicos) != null) {
+        if (!Cobertura.cobreTudo(valida, trechos.size, props.material.maxTopicos)) {
             proposta = Cobertura.blocosIguais(trechos.size, props.material.trechosPorTopicoPlanoB, trechos.map { it.titulo })
         }
         tx.executeWithoutResult {
             topicos.criarDaProposta(t.materialId, t.assuntoId, proposta)
-            dados.concluirRegistro(sug, modelo, tokensEntrada, tokensSaida, BigDecimal.ZERO)  // sem tabela de preço de modelo de linguagem na F2 (ADR 0024)
+            dados.concluirRegistro(sug, modelo, tokensEntrada, tokensSaida, precos.custoLinguagem(modelo, tokensEntrada, tokensSaida))
             dados.definirStatus(t.materialId, "pronto")
         }
     }
@@ -145,5 +147,7 @@ class Indexador(
         const val DIMENSAO = 1536
         const val MODELO_ESTRUTURA = "regras-de-estrutura"  // registro_geracao.modelo_ia quando os tópicos vêm dos títulos, sem modelo de linguagem
         val CODIGOS_CONHECIDOS = setOf("sem_texto", "formato_invalido")
+        /** O serviço de IA está mal configurado ou o provedor recusou a conta: reenviar o arquivo não resolve (o material guarda `configuracao_ia`; o registro, `falha_ia`). */
+        val CODIGOS_DE_CONFIGURACAO = setOf("preco_ausente", "chave_recusada", "modelo_inexistente", "sem_credito", "modelo_falso")
     }
 }

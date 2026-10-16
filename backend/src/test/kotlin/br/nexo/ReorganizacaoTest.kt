@@ -29,7 +29,7 @@ class ReorganizacaoTest : BaseIntegracao() {
     private fun registros(id: String) = dono.queryForList("SELECT status || ':' || tokens_entrada || ':' || tokens_saida FROM registro_geracao WHERE material_id = ?::uuid AND operacao = 'sugestao_topicos' ORDER BY criado_em", String::class.java, id)
 
     @AfterEach fun restaurar() {
-        python.propostaTopicos = "[]"; python.propostaReorganizar = "[]"; python.statusReorganizar = null; python.atrasoReorganizarMs = 0; python.falharProcessar = false
+        python.propostaTopicos = "[]"; python.propostaReorganizar = "[]"; python.statusReorganizar = null; python.codigoReorganizar = null; python.atrasoReorganizarMs = 0; python.falharProcessar = false
     }
 
     @Test
@@ -72,13 +72,43 @@ class ReorganizacaoTest : BaseIntegracao() {
     @Test
     fun `proposta invalida e recusada, os tokens ficam no registro e nada muda`() {
         val c = conta(); val (id, _) = material(c)
-        for (ruim in listOf("""[{"nome":"A","inicio":1,"fim":4},{"nome":"B","inicio":6,"fim":10}]""", """[{"nome":"A","inicio":1,"fim":5}]""", """[{"nome":" ","inicio":1,"fim":10}]""", "[]")) {
+        for (ruim in listOf("""[{"nome":"A","inicio":1,"fim":6},{"nome":"B","inicio":6,"fim":10}]""", """[{"nome":"A","inicio":1,"fim":11}]""", """[{"nome":" ","inicio":1,"fim":10}]""", "[]")) {
             python.propostaReorganizar = ruim
             val r = reorganizar(c, id)
             assertEquals(422, r.status, ruim); assertEquals("proposta_ia_invalida", r.corpo["codigo"].asString())
         }
         assertEquals(listOf("A", "B"), nomes(c))
         assertTrue(registros(id).drop(1).all { it == "falhou:21:9" }, registros(id).toString())
+        assertTrue(dono.queryForList("SELECT motivo_falha FROM registro_geracao WHERE material_id = ?::uuid AND status = 'falhou'", String::class.java, id).all { it == "falha_ia" }, "proposta inválida: motivo falha_ia (V6)")
+    }
+
+    @Test
+    fun `proposta que deixa trechos de fora e aceita como rascunho`() {
+        val c = conta(); val (id, _) = material(c)
+        python.propostaReorganizar = """[{"nome":"A","inicio":2,"fim":4},{"nome":"B","inicio":7,"fim":9}]"""
+        val r = reorganizar(c, id)
+        assertEquals(200, r.status, r.corpo.toString())
+        assertEquals(listOf(2 to 4, 7 to 9), r.corpo["topicos"].toList().map { it["inicio"].asInt() to it["fim"].asInt() })
+    }
+
+    @Test
+    fun `erro do provedor aparece com mensagem propria e so repete o que vale repetir`() {
+        val c = conta(); val (id, _) = material(c)
+        python.codigoReorganizar = "limite_provedor"; python.statusReorganizar = 503
+        val antes = python.chamadas.count { it == "reorganizar" }
+        val r1 = reorganizar(c, id)
+        assertEquals(503, r1.status); assertTrue(r1.corpo["mensagem"].asString().contains("limite de requisições"), r1.corpo.toString())
+        assertEquals(3, python.chamadas.count { it == "reorganizar" } - antes, "503 do serviço: o backend repete até 3 vezes")
+        python.codigoReorganizar = "sem_credito"; python.statusReorganizar = 424
+        val antes2 = python.chamadas.count { it == "reorganizar" }
+        val r2 = reorganizar(c, id)
+        assertEquals(503, r2.status); assertTrue(r2.corpo["mensagem"].asString().contains("sem crédito"), r2.corpo.toString())
+        assertEquals(1, python.chamadas.count { it == "reorganizar" } - antes2, "424 (chave, crédito, modelo): não repete")
+        for ((codigo, trecho) in listOf("chave_recusada" to "GEMINI_API_KEY", "modelo_inexistente" to "MODELO_LINGUAGEM_NOME")) {
+            python.codigoReorganizar = codigo; python.statusReorganizar = 424
+            assertTrue(reorganizar(c, id).corpo["mensagem"].asString().contains(trecho), codigo)
+        }
+        assertTrue(dono.queryForList("SELECT motivo_falha FROM registro_geracao WHERE material_id = ?::uuid AND operacao = 'sugestao_topicos' AND status = 'falhou'", String::class.java, id).all { it == "falha_ia" }, "cada pedido falho fica registrado")
     }
 
     @Test

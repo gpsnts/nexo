@@ -7,10 +7,11 @@ import Material from './Material'
 import NaoEncontrada from './NaoEncontrada'
 import NovoEstudo from './NovoEstudo'
 import Perfil from './Perfil'
-import { ehEntrada, ehInterna, ehLink, idDoMaterial, proximoDaUrl, rotaDaUrl, urlDe, urlMaterial, type NomeRota } from './rotas'
+import Topico from './Topico'
+import { ehEntrada, ehInterna, ehLink, idDoMaterial, idDoTopico, proximoDaUrl, rotaDaUrl, urlDe, urlMaterial, urlTopico, type NomeRota } from './rotas'
 import { chaveSessao, marcarSessao, talvezTenhaSessao } from './sessaoLocal'
 
-type Destino = Exclude<NomeRota, 'desconhecida' | 'material'>
+type Destino = Exclude<NomeRota, 'desconhecida' | 'material' | 'topico'>
 const modoDaRota = (r: NomeRota): Modo => (r === 'criar' ? 'criar' : r === 'recuperar' ? 'esqueci' : 'entrar')
 const rotaDoModo = (m: Modo): Destino => (m === 'criar' ? 'criar' : m === 'esqueci' ? 'recuperar' : 'entrar')
 
@@ -40,6 +41,11 @@ export default function App() {
   }, [])
   const abrirMaterial = useCallback((id: string) => {
     window.history.pushState(null, '', urlMaterial(id))
+    window.dispatchEvent(new Event(EVENTO_ROTA))
+  }, [])
+
+  const abrirTopico = useCallback((id: string) => {
+    window.history.pushState(null, '', urlTopico(id))
     window.dispatchEvent(new Event(EVENTO_ROTA))
   }, [])
 
@@ -87,8 +93,9 @@ export default function App() {
   const comum = { aoIrInicio: () => navegar('inicio'), aoIrPerfil: () => navegar('perfil'), aoSair: encerrar }
   if (rota === 'perfil')
     return <Perfil nome={sessao.nome} aoIrInicio={comum.aoIrInicio} aoSair={encerrar} aoExcluir={sair} aoAtualizarNome={(nome) => setSessao({ nome })} />
-  if (rota === 'novo') return <NovoEstudo {...comum} aoAbrirMaterial={abrirMaterial} />
+  if (rota === 'novo') return <NovoEstudo {...comum} aoAbrirMaterial={abrirMaterial} aoAbrirTopico={abrirTopico} />
   if (rota === 'material')
-    return <Material key={idDoMaterial()} id={idDoMaterial()!} {...comum} aoNovoEnvio={() => navegar('novo')} />
-  return <Inicio nome={sessao.nome} aoSair={encerrar} aoAbrirPerfil={() => navegar('perfil')} aoNovoEstudo={() => navegar('novo')} aoAbrirMaterial={abrirMaterial} />
+    return <Material key={idDoMaterial()} id={idDoMaterial()!} {...comum} aoNovoEnvio={() => navegar('novo')} aoAbrirTopico={abrirTopico} />
+  if (rota === 'topico') return <Topico key={idDoTopico()} id={idDoTopico()!} {...comum} aoAbrirMaterial={abrirMaterial} />
+  return <Inicio nome={sessao.nome} aoSair={encerrar} aoAbrirPerfil={() => navegar('perfil')} aoNovoEstudo={() => navegar('novo')} aoAbrirMaterial={abrirMaterial} aoAbrirTopico={abrirTopico} />
 }

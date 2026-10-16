@@ -28,7 +28,7 @@ export default function Sessoes() {
   }
 
   return (
-    <section className="secao larga">
+    <section id="secao-sessoes" className="secao larga">
       <h2>Sessões ativas</h2>
       <p className="sub">Dispositivos em que a sua conta está conectada. Se algum não for seu, encerre-o e troque a senha.</p>
       {itens === null && !falhou && <p className="sub" role="status">Carregando…</p>}

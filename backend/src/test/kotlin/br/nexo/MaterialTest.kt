@@ -298,6 +298,28 @@ class MaterialTest : BaseIntegracao() {
         val c = conta()
         val id = idDe(enviar(c, bytes = pdf(extra = "QUEBRAPROCESSAR")))
         assertEquals("falha_ia", get(c, "/materiais/$id/andamento").corpo["motivoFalha"].asString())
+        assertEquals(listOf("falha_ia"), dono.queryForList("SELECT motivo_falha FROM registro_geracao WHERE material_id = ?::uuid", String::class.java, id), "o registro também guarda o motivo (V6)")
+    }
+
+    @Test
+    fun `modelo real sem preco configurado falha como configuracao de IA, nao como falha passageira`() {
+        python.modeloLinguagem = "modelo-real-x"
+        try {
+            val c = conta()
+            val id = idDe(enviar(c))
+            assertEquals("configuracao_ia", get(c, "/materiais/$id/andamento").corpo["motivoFalha"].asString())
+            assertEquals(0, dono.queryForObject("SELECT count(*) FROM registro_geracao WHERE material_id = ?::uuid", Int::class.java, id), "recusado antes de qualquer operação: nenhum registro")
+        } finally {
+            python.modeloLinguagem = "linguagem-falso"
+        }
+    }
+
+    @Test
+    fun `falha de arquivo sem texto deixa o mesmo codigo no registro da indexacao`() {
+        val c = conta()
+        val id = idDe(enviar(c, bytes = pdf(extra = "SEMTEXTO")))
+        assertEquals("sem_texto", get(c, "/materiais/$id/andamento").corpo["motivoFalha"].asString())
+        assertEquals(listOf("sem_texto"), dono.queryForList("SELECT motivo_falha FROM registro_geracao WHERE material_id = ?::uuid AND status = 'falhou'", String::class.java, id))
     }
 
     @Test
@@ -319,7 +341,9 @@ class MaterialTest : BaseIntegracao() {
                 it, c.id, "h${UUID.randomUUID()}", "processando", minutosAtras)
         }
         val velho = material(30); val novo = material(0)
+        dono.update("INSERT INTO registro_geracao(id,usuario_id,material_id,operacao,tipo_entrada,modelo_ia,status,tokens_entrada,tokens_saida,custo_estimado_usd,questoes_aprovadas,questoes_rejeitadas,questoes_repetidas,progresso_percentual,atualizado_em) VALUES (?,?,?,'indexacao_material','material','m','em_andamento',0,0,0,0,0,0,10,now() - interval '30 minutes')", UUID.randomUUID(), c.id, velho)
         assertEquals("interrompido", get(c, "/materiais/$velho/andamento").corpo["motivoFalha"].asString())
+        assertEquals(listOf("interrompido"), dono.queryForList("SELECT motivo_falha FROM registro_geracao WHERE material_id = ?", String::class.java, velho), "o registro aberto também vira interrompido")
         assertEquals("processando", get(c, "/materiais/$novo/andamento").corpo["status"].asString())
     }
 
@@ -352,6 +376,23 @@ class MaterialTest : BaseIntegracao() {
     }
 
     @Test
+    fun `revisar aceita trechos de fora e eles voltam a entrar quando o estudante quiser`() {
+        val c = conta()
+        val (id, t) = comTopicos(c)
+        // corta o começo (capa), um miolo e o fim: os trechos continuam no material, só não pertencem a nenhum tópico
+        val r1 = put(c, "/materiais/$id/topicos", faixas(Triple(t[0], "A", 2..4), Triple(t[1], "B", 7..9)))
+        assertEquals(200, r1.status, r1.corpo.toString())
+        assertEquals(listOf(2 to 4, 7 to 9), r1.corpo.toList().map { it["inicio"].asInt() to it["fim"].asInt() })
+        assertEquals(10, contar("SELECT count(*) FROM trecho WHERE usuario_id = ?", c.id))
+        // excluir um tópico inteiro (sem conteúdo) também vale; sempre sobra ao menos um
+        val r2 = put(c, "/materiais/$id/topicos", faixas(Triple(t[1], "B", 7..9)))
+        assertEquals(1, r2.corpo.size()); assertEquals(1, contar("SELECT count(*) FROM topico WHERE usuario_id = ?", c.id))
+        // volta a usar tudo
+        val r3 = put(c, "/materiais/$id/topicos", faixas(Triple(null, "Início", 1..6), Triple(t[1], "B", 7..10)))
+        assertEquals(listOf(1 to 6, 7 to 10), r3.corpo.toList().map { it["inicio"].asInt() to it["fim"].asInt() })
+    }
+
+    @Test
     fun `revisar mantem a ordem dos outros topicos do assunto`() {
         val c = conta()
         chamar("POST", "/topicos", """{"nome":"Livre"}""", c.token)
@@ -368,10 +409,9 @@ class MaterialTest : BaseIntegracao() {
         val (id, t) = comTopicos(c)
         val antes = dono.queryForList("SELECT nome || ordem_trecho_inicial || '-' || ordem_trecho_final FROM topico t JOIN topico_fonte f ON f.topico_id = t.id WHERE t.usuario_id = ? ORDER BY 1", String::class.java, c.id)
         listOf(
-            faixas(Triple(t[0], "A", 1..4), Triple(t[1], "B", 6..10)),            // lacuna
             faixas(Triple(t[0], "A", 1..6), Triple(t[1], "B", 6..10)),            // sobreposição
-            faixas(Triple(t[0], "A", 2..5), Triple(t[1], "B", 6..10)),            // não começa em 1
-            faixas(Triple(t[0], "A", 1..5), Triple(t[1], "B", 6..9)),             // não termina no último trecho
+            faixas(Triple(t[1], "B", 6..10), Triple(t[0], "A", 1..5)),            // fora de ordem
+            faixas(Triple(t[0], "A", 0..5), Triple(t[1], "B", 6..10)),            // antes do trecho 1
             faixas(Triple(t[0], "A", 1..5), Triple(t[1], "B", 6..11)),            // passa do fim
             faixas(Triple(t[0], "  ", 1..5), Triple(t[1], "B", 6..10)),           // sem nome
             faixas(Triple(t[0], "A", 1..5), Triple(t[0], "B", 6..10)),            // tópico repetido

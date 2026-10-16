@@ -26,7 +26,7 @@ class Dados(val jdbc: JdbcTemplate) {
     )
 
     fun material(id: UUID): MaterialLinha? = jdbc.query("SELECT * FROM material WHERE id = ?", ::material, id).firstOrNull()
-    fun materiais(): List<MaterialLinha> = jdbc.query("SELECT * FROM material ORDER BY criado_em DESC", ::material)
+    fun materiais(limite: Int): List<MaterialLinha> = jdbc.query("SELECT * FROM material ORDER BY criado_em DESC LIMIT ?", ::material, limite)
     fun materialAtivoPorHash(hash: String): MaterialLinha? = jdbc.query("SELECT * FROM material WHERE hash_arquivo = ? AND status_processamento <> 'falhou' LIMIT 1", ::material, hash).firstOrNull()
     fun materiaisPorHashFalhos(hash: String): List<MaterialLinha> = jdbc.query("SELECT * FROM material WHERE hash_arquivo = ? AND status_processamento = 'falhou'", ::material, hash)
     fun emProcessamento(): Int = jdbc.queryForObject("SELECT count(*) FROM material WHERE status_processamento IN ('pendente','processando')", Int::class.java)!!
@@ -97,8 +97,8 @@ class Dados(val jdbc: JdbcTemplate) {
     }
 
     /** Registro que chamou o modelo mas não deu resultado aproveitável: os tokens gastos ficam registrados. */
-    fun falharRegistro(id: UUID, modelo: String, tokensEntrada: Int, tokensSaida: Int) {
-        jdbc.update("UPDATE registro_geracao SET status='falhou', modelo_ia=?, tokens_entrada=?, tokens_saida=?, finalizada_em=now() WHERE id=?", modelo, tokensEntrada, tokensSaida, id)
+    fun falharRegistro(id: UUID, modelo: String, tokensEntrada: Int, tokensSaida: Int, motivo: String? = null, custo: java.math.BigDecimal = java.math.BigDecimal.ZERO) {
+        jdbc.update("UPDATE registro_geracao SET status='falhou', motivo_falha=?, modelo_ia=?, tokens_entrada=?, tokens_saida=?, custo_estimado_usd=?, finalizada_em=now() WHERE id=?", motivo, modelo, tokensEntrada, tokensSaida, custo, id)
     }
 
     /** Resumo de cada trecho para o modelo (a tela de revisão não precisa do texto inteiro): ordem e início do texto. O nível de título não é guardado no banco. */
@@ -106,8 +106,8 @@ class Dados(val jdbc: JdbcTemplate) {
         jdbc.query("SELECT ordem, left(conteudo, ?) AS inicio FROM trecho WHERE material_id = ? ORDER BY ordem", { rs, _ -> ResumoTrecho(rs.getInt("ordem"), null, null, rs.getString("inicio")) }, previa, materialId)
 
     /** Falha todos os registros ainda abertos do material (indexação e sugestão). */
-    fun falharRegistrosAbertos(materialId: UUID) {
-        jdbc.update("UPDATE registro_geracao SET status='falhou', finalizada_em=now() WHERE material_id = ? AND status IN ('pendente','em_andamento')", materialId)
+    fun falharRegistrosAbertos(materialId: UUID, motivo: String? = null) {
+        jdbc.update("UPDATE registro_geracao SET status='falhou', motivo_falha=?, finalizada_em=now() WHERE material_id = ? AND status IN ('pendente','em_andamento')", motivo, materialId)
     }
 
     fun registros(materialId: UUID): List<RegistroLinha> = jdbc.query(

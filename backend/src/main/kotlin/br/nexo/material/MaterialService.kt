@@ -14,7 +14,7 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
-data class MaterialDto(val id: UUID, val nomeArquivo: String, val status: String, val motivoFalha: String?, val paginas: Int?, val criadoEm: Instant)
+data class MaterialDto(val id: UUID, val nomeArquivo: String, val status: String, val motivoFalha: String?, val paginas: Int?, val criadoEm: Instant, val gerando: Boolean = false)
 data class Andamento(val status: String, val etapa: String, val percentual: Int, val motivoFalha: String?)
 
 @Service
@@ -28,6 +28,7 @@ class MaterialService(
     private val indexador: Indexador,
     private val tx: TransactionTemplate,
     private val auditoria: Auditoria,
+    private val geracaoDados: GeracaoDados,
     private val relogio: Clock,
     private val limites: LimitesIa,
 ) {
@@ -96,7 +97,10 @@ class MaterialService(
         return id
     }
 
-    fun listar(): List<MaterialDto> = tx.execute { dados.materiais().map(::dto) }
+    fun listar(limite: Int): List<MaterialDto> = tx.execute {
+        val gerando = geracaoDados.materiaisGerando(props.geracao.pulsoMaximo.seconds)
+        dados.materiais(limite).map { dto(it).copy(gerando = it.id in gerando) }
+    }!!
 
     fun obter(id: UUID): MaterialDto = tx.execute { dados.material(id)?.let(::dto) }  ?: throw naoEncontrado()
 
@@ -110,7 +114,7 @@ class MaterialService(
             if (Duration.between(pulso, relogio.instant()) > props.material.pulsoMaximo) {
                 tx.executeWithoutResult {
                     dados.definirStatus(id, "falhou", "interrompido")
-                    dados.falharRegistrosAbertos(id)
+                    dados.falharRegistrosAbertos(id, "interrompido")
                 }
                 m = tx.execute { dados.material(id) }!!
             }

@@ -166,9 +166,66 @@ class RobustezTest : BaseIntegracao() {
         assertTrue(GuardaDeAmbiente(prod.copy(jwt = prod.jwt.copy(segredo = "troque-por-um-segredo-com-32-caracteres-ou-mais"))).problemas().any { "valor de exemplo" in it })
         assertTrue(GuardaDeAmbiente(prod.copy(processamento = prod.processamento.copy(segredo = "troque-por-outro-segredo-interno-longo"))).problemas().any { "valor de exemplo" in it })
         assertFailsWith<IllegalStateException> { GuardaDeAmbiente(prod).validar() }
-        val ok = prod.copy(email = prod.email.copy(provedor = "smtp"), conta = prod.conta.copy(urlFrontend = "https://nexo.exemplo.br", assincrono = true), material = prod.material.copy(assincrono = true))
+        val ok = prod.copy(email = prod.email.copy(provedor = "smtp"), conta = prod.conta.copy(urlFrontend = "https://nexo.exemplo.br", assincrono = true), material = prod.material.copy(assincrono = true), geracao = prod.geracao.copy(assincrono = true))
+        assertTrue(GuardaDeAmbiente(ok.copy(geracao = ok.geracao.copy(assincrono = false))).problemas().any { "geracao.assincrono" in it })
         assertTrue(GuardaDeAmbiente(ok).problemas().isEmpty())
         assertTrue(GuardaDeAmbiente(props.copy(ambiente = "desenvolvimento")).problemas().isEmpty())
+    }
+
+    @Test
+    fun `producao recusa operacoes quando o servico de IA usa provedor falso`() {
+        val http = br.nexo.material.ProcessamentoHttp(props.copy(ambiente = "producao"), mapper)
+        val e = assertFailsWith<br.nexo.material.FalhaProcessamento> { http.modelos() }
+        assertEquals("modelo_falso", e.codigo)
+        assertEquals("linguagem-falso" to "embedding-falso", br.nexo.material.ProcessamentoHttp(props.copy(ambiente = "desenvolvimento"), mapper).modelos())
+    }
+
+    @Test
+    fun `consulta de saude do servico de IA falha rapido quando ele esta pendurado`() {
+        val travado = com.sun.net.httpserver.HttpServer.create(java.net.InetSocketAddress("127.0.0.1", 0), 0)
+        travado.createContext("/saude") { Thread.sleep(6_000); it.sendResponseHeaders(200, -1); it.close() }
+        travado.executor = java.util.concurrent.Executors.newCachedThreadPool(); travado.start()
+        try {
+            val p = props.copy(processamento = props.processamento.copy(url = "http://127.0.0.1:${travado.address.port}", saudeTimeout = java.time.Duration.ofMillis(800)))
+            val inicio = System.nanoTime()
+            val e = assertFailsWith<br.nexo.material.FalhaProcessamento> { br.nexo.material.ProcessamentoHttp(p, mapper).modelos() }
+            val ms = (System.nanoTime() - inicio) / 1_000_000
+            assertTrue(ms < 2_500, "uma tentativa só: levou $ms ms (eram 3 tentativas de 10 s)")
+            assertTrue(e.retentavel)
+        } finally {
+            travado.stop(0)
+        }
+    }
+
+    @Test
+    fun `nomes dos modelos ficam em cache e a producao continua recusando o provedor falso`() {
+        val http = br.nexo.material.ProcessamentoHttp(props.copy(processamento = props.processamento.copy(cacheModelos = java.time.Duration.ofMinutes(1))), mapper)
+        val antes = python.chamadas.count { it == "saude" }
+        repeat(3) { assertEquals("linguagem-falso" to "embedding-falso", http.modelos()) }
+        assertEquals(1, python.chamadas.count { it == "saude" } - antes, "três chamadas, uma consulta")
+        val prod = br.nexo.material.ProcessamentoHttp(props.copy(ambiente = "producao", processamento = props.processamento.copy(cacheModelos = java.time.Duration.ofMinutes(1))), mapper)
+        repeat(2) { assertEquals("modelo_falso", assertFailsWith<br.nexo.material.FalhaProcessamento> { prod.modelos() }.codigo) } // o cache não pula a guarda
+        val vencido = br.nexo.material.ProcessamentoHttp(props.copy(processamento = props.processamento.copy(cacheModelos = java.time.Duration.ZERO)), mapper)
+        val base = python.chamadas.count { it == "saude" }
+        repeat(2) { vencido.modelos() }
+        assertEquals(2, python.chamadas.count { it == "saude" } - base, "cache zerado: consulta sempre")
+    }
+
+    @Test
+    fun `embedding real de outro modelo exige preco, e o preco unico vale para ele`() {
+        python.modeloEmbedding = "text-embedding-3-large"
+        try {
+            val semCache = props.processamento.copy(cacheModelos = java.time.Duration.ZERO)
+            val semPreco = br.nexo.material.ProcessamentoHttp(props.copy(processamento = semCache), mapper)
+            val e = assertFailsWith<br.nexo.material.FalhaProcessamento> { semPreco.modelos() }
+            assertEquals("preco_ausente", e.codigo); assertTrue("PRECO_EMBEDDING_USD_POR_MILHAO" in e.message!!)
+            val comPreco = props.copy(processamento = semCache, material = props.material.copy(precoEmbeddingUsdPorMilhao = java.math.BigDecimal("0.13")))
+            assertEquals("linguagem-falso" to "text-embedding-3-large", br.nexo.material.ProcessamentoHttp(comPreco, mapper).modelos())
+            assertEquals(java.math.BigDecimal("0.13"), comPreco.precoEmbedding("text-embedding-3-large"), "preço único para modelo fora da tabela")
+            assertEquals(java.math.BigDecimal("0.02"), comPreco.precoEmbedding("text-embedding-3-small"), "a tabela por modelo tem prioridade")
+        } finally {
+            python.modeloEmbedding = "embedding-falso"
+        }
     }
 
     // ---------- concorrência ----------

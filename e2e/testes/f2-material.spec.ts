@@ -35,7 +35,7 @@ test('Reorganizar com IA gera um rascunho sem alterar nada até confirmar', asyn
   await page.getByRole('button', { name: 'Reorganizar com IA' }).click()
   // com o provedor falso a IA "aprova" a divisão atual; o fluxo (pedido, registro, resposta) é o mesmo do provedor real
   await expect(page.getByText(/manteve a divisão atual/)).toBeVisible()
-  await expect(page.getByText('Alterações não salvas.')).toHaveCount(0)
+  await expect(page.getByText(/Alterações não salvas/)).toHaveCount(0)
 })
 
 test('nome de arquivo muito longo não cria rolagem horizontal @celular', async ({ page }) => {
@@ -65,7 +65,7 @@ test('51 páginas é recusado na hora, sem criar material', async ({ page }) => 
   await enviarMaterial(page, fixture('longo-51-paginas.pdf'))
   await expect(page.getByRole('alert')).toContainText('passa de 50 páginas')
   await page.getByRole('button', { name: 'Início' }).click()
-  await expect(page.getByText(/ainda não enviou nenhum material/)).toBeVisible()
+  await expect(page.getByText(/ainda não tem nenhum estudo/)).toBeVisible()
 })
 
 test('PDF sem texto falha com o motivo e permite novo envio', async ({ page }) => {
@@ -83,7 +83,9 @@ test('tópico livre (UC03) é registrado sem material', async ({ page }) => {
   await page.goto('/novo-estudo')
   await page.getByLabel('Tópico', { exact: true }).fill('Movimento Retilíneo Uniforme')
   await page.getByRole('button', { name: 'Registrar tópico' }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'registrado' })).toBeVisible()
+  await expect(page).toHaveURL(/\/topicos\/[0-9a-f-]{36}/) // o próximo passo (gerar resumo e questões) é no próprio tópico
+  await expect(page.getByRole('heading', { name: 'Movimento Retilíneo Uniforme' })).toBeVisible()
+  await expect(page.getByText(/Tópico livre/)).toBeVisible()
 })
 
 test('outro usuário não abre o material de quem enviou', async ({ browser }) => {
@@ -97,4 +99,16 @@ test('outro usuário não abre o material de quem enviou', async ({ browser }) =
   await b.goto(url)
   await expect(b.getByRole('alert')).toBeVisible() // 404: "Não foi possível abrir o material"
   await expect(b.getByRole('heading', { name: 'Tópicos do material' })).toHaveCount(0)
+})
+
+test('revisão em celular: a barra de salvar fixa fica curta e não cobre a lista @celular', async ({ page }) => {
+  await criarContaEEntrar(page)
+  await enviarMaterial(page, fixture('apostila-50-paginas.pdf'))
+  await expect(page.getByRole('heading', { name: 'Tópicos do material' })).toBeVisible({ timeout: 45_000 })
+  await page.getByLabel('Nome do tópico 2', { exact: true }).fill('Nome alterado')
+  const barra = page.locator('.barra-acoes')
+  await expect(barra).toContainText('Alterações não salvas.')
+  const caixa = (await barra.boundingBox())!
+  const viewport = page.viewportSize()!
+  expect(caixa.height).toBeLessThan(viewport.height * 0.2)
 })

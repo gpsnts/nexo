@@ -49,6 +49,8 @@ nexo:
     timeout: PT2M                         # extração de um material de 50 páginas
     tentativas: 3                         # 5xx e falha de rede; 4xx não é repetido
     espera: PT1S                          # multiplicada pelo número da tentativa
+    saude-timeout: PT3S                   # consulta dos nomes dos modelos (/saude): uma tentativa só, para falhar rápido com o serviço fora do ar
+    cache-modelos: PT1M                   # os nomes dos modelos mudam só com reinício do serviço: não consultar a cada operação
   material:
     diretorio: ./dados/arquivos           # volume do compose em /dados/arquivos (ADR 0024)
     assincrono: true                      # indexação em executor próprio; só os testes rodam na hora
@@ -59,12 +61,27 @@ nexo:
     caracteres-por-pagina: 3000           # estimativa de páginas de DOCX e TXT (ADR 0024)
     lote-embeddings: 64
     pulso-maximo: PT5M                    # sem progresso por este tempo e sem tarefa viva: material vira falhou/interrompido
-    trechos-minimos-por-topico: 2         # divisão por estrutura: seção menor que isto se junta à vizinha
+    trechos-minimos-por-topico: 1         # divisão por estrutura: seção menor que isto se junta à vizinha (1 = cada título vira um tópico, ADR 0043)
     trechos-por-topico-plano-b: 15        # divisão em blocos iguais quando o modelo não propõe tópicos válidos
     max-topicos: 100
     esperas-remocao: [PT1S, PT10S, PT1M]  # novas tentativas de apagar arquivo depois do commit
-    precos-embedding-usd-por-milhao:      # modelo desconhecido (ou falso) custa 0
+    precos-embedding-usd-por-milhao:      # por nome do modelo; o provedor falso custa 0
       text-embedding-3-small: 0.02
+    preco-embedding-usd-por-milhao: ${PRECO_EMBEDDING_USD_POR_MILHAO:}   # para outro modelo de embedding (ex.: o 3-large): valor do painel do provedor; sem preço o modelo é recusado
+  geracao:                                # resumo, questões e verificação de fidelidade (F3, ADR 0034)
+    assincrono: true                      # executor próprio; só os testes rodam na hora
+    threads: 2
+    fila: 20
+    pulso-maximo: PT5M                    # sem progresso por este tempo e sem tarefa viva: a operação vira falhou
+    contexto-max-caracteres: 24000        # conteúdo-base enviado ao modelo (cerca de 6 mil tokens)
+    questoes-por-pedido: 10
+    questoes-por-topico: 50
+    preco-linguagem:                      # modelo de linguagem real: US$ por milhão de tokens (confira no painel do provedor); vazio = só provedor falso
+      entrada-usd-por-milhao: ${PRECO_LINGUAGEM_ENTRADA_USD_POR_MILHAO:}
+      saida-usd-por-milhao: ${PRECO_LINGUAGEM_SAIDA_USD_POR_MILHAO:}
+    simultaneas-por-usuario: 2            # gerações (resumo ou questões) abertas por usuário: um usuário não ocupa sozinho o executor e a fila de todos
+    resumos-por-topico: 10                # os mais recentes ficam; ao passar disto o mais antigo sai junto com o novo resumo
+    enunciados-a-evitar: 40               # perguntas já existentes citadas no pedido para não repetir
   jwt:
     # segredo vem de NEXO_JWT_SEGREDO (mín. 32 caracteres); sem valor padrão de propósito
     validade-acesso: PT15M

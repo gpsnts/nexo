@@ -31,15 +31,26 @@ services:
   processamento:
     build: ./servico-processamento
     environment:
-      EMBEDDING_PROVEDOR: ${EMBEDDING_PROVEDOR:-falso}
+      MODELO_EMBEDDING_PROVEDOR: ${MODELO_EMBEDDING_PROVEDOR:-falso}
       MODELO_LINGUAGEM_PROVEDOR: ${MODELO_LINGUAGEM_PROVEDOR:-falso}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-}              # vazio = generativelanguage.googleapis.com (útil só para servidor de teste)
+      MODELO_EMBEDDING_NOME: ${MODELO_EMBEDDING_NOME:-}   # vazio = text-embedding-3-small
+      MODELO_EMBEDDING_DIMENSOES: ${MODELO_EMBEDDING_DIMENSOES:-1536}   # a coluna do banco é vector(1536); o 3-large é reduzido a isto pela própria API
+      MODELO_LINGUAGEM_NOME: ${MODELO_LINGUAGEM_NOME:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}            # só do modelo de linguagem (útil para servidor compatível ou de teste); vazio = api.openai.com
+      MODELO_LINGUAGEM_MAX_TOKENS: ${MODELO_LINGUAGEM_MAX_TOKENS:-4096}
+      MODELO_LINGUAGEM_TEMPERATURA: ${MODELO_LINGUAGEM_TEMPERATURA:-}   # vazio = não enviar (modelos de raciocínio recusam)
       NEXO_PROCESSAMENTO_SEGREDO: ${NEXO_PROCESSAMENTO_SEGREDO:?defina no .env}  # o backend manda este segredo em toda chamada interna
 
   backend:
     build: ./backend
     restart: on-failure  # se subir antes do banco (ex.: `docker start` fora de ordem), tenta de novo em vez de ficar parado
     environment:
+      PRECO_EMBEDDING_USD_POR_MILHAO: ${PRECO_EMBEDDING_USD_POR_MILHAO:-}
+      PRECO_LINGUAGEM_ENTRADA_USD_POR_MILHAO: ${PRECO_LINGUAGEM_ENTRADA_USD_POR_MILHAO:-}
+      PRECO_LINGUAGEM_SAIDA_USD_POR_MILHAO: ${PRECO_LINGUAGEM_SAIDA_USD_POR_MILHAO:-}
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/nexo
       SPRING_DATASOURCE_USERNAME: nexo_app
       SPRING_DATASOURCE_PASSWORD: ${NEXO_APP_SENHA}

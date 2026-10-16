@@ -18,7 +18,7 @@ jobs:
       PGDATABASE: nexo
     steps:
       - uses: actions/checkout@v4
-      - name: Aplicar as migrações V1 a V5 em PostgreSQL vazio (Flyway, como no compose)
+      - name: Aplicar as migrações V1 a V7 em PostgreSQL vazio (Flyway, como no compose)
         run: >
           docker run --rm --network host -v "$PWD/db:/flyway/db:ro" flyway/flyway:10
           -url=jdbc:postgresql://localhost:5432/nexo -user=nexo_dono -password=ci
@@ -28,7 +28,7 @@ jobs:
         run: |
           n=$(psql -v ON_ERROR_STOP=1 -f db/validacao/verificar_esquema.sql 2>&1 | grep -c PASS)
           echo "verificações: $n"
-          test "$n" -eq 58
+          test "$n" -eq 62
 
   backend:
     runs-on: ubuntu-latest

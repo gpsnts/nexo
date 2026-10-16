@@ -1,3 +1,5 @@
+import { useDevolverFoco } from './foco'
+import { AVISO_IA } from './estudo'
 import { useEffect, useState, type FormEvent } from 'react'
 import { api, ErroApi, type Sessao } from './api'
 import Campo from './Campo'
@@ -22,6 +24,7 @@ export default function Entrar({ modo, emailInicial, aoMudarEmail, aoMudarModo, 
   const [erro, setErro] = useState('')
   const [aviso, setAviso] = useState(avisoInicial)
   const [enviando, setEnviando] = useState(false)
+  const botao = useDevolverFoco(enviando)
   const [naoVerificado, setNaoVerificado] = useState(false) // login recusado: e-mail ainda não confirmado
   const [aguardando, setAguardando] = useState(false) // cadastro feito: falta confirmar o e-mail
   const [codigoErro, setCodigoErro] = useState('')
@@ -100,6 +103,7 @@ export default function Entrar({ modo, emailInicial, aoMudarEmail, aoMudarModo, 
           <>
             <h1>{titulos[modo]}</h1>
             <p className="sub">Seu tutor de estudo guiado: resumos, questões e revisões a partir do seu material.</p>
+            {modo === 'criar' && <p className="sub privacidade">{AVISO_IA.cadastro}</p>}
             <form onSubmit={enviar} key={modo} noValidate>
               {modo === 'criar' && <Campo rotulo="Nome" valor={nome} mudar={campo('nome', setNome)} auto="name" erro={erros.nome} focar />}
               <Campo rotulo="E-mail" valor={email} mudar={campo('email', setEmail)} tipo="email" auto="email" erro={erros.email} focar={modo !== 'criar'} />
@@ -116,7 +120,7 @@ export default function Entrar({ modo, emailInicial, aoMudarEmail, aoMudarModo, 
                   <button type="button" className="link" onClick={() => mudar('esqueci')}>Esqueci minha senha</button>
                 </div>
               )}
-              <button type="submit" disabled={enviando || espera > 0}>
+              <button ref={botao} type="submit" disabled={enviando || espera > 0}>
                 {espera > 0 ? `Tente de novo em ${espera} s` : enviando ? 'Aguarde…' : modo === 'esqueci' ? 'Enviar link' : titulos[modo]}
               </button>
             </form>

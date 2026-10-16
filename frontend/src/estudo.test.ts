@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { rotuloPaginas, formatarTamanho, ajustar, dividir, erroArquivo, errosDeNome, faixasDe, igual, motivoDe, umSo, unir, type Faixa, type Topico } from './estudo'
+import { rotuloPaginas, formatarTamanho, ajustar, criarNaLacuna, dividir, excluir, lacunas, erroArquivo, errosDeNome, faixasDe, igual, motivoDe, umSo, unir, type Faixa, type Topico } from './estudo'
 
 const topicos: Topico[] = [
   { id: 'a', assuntoId: 'g', nome: 'A', ordem: 1, inicio: 1, fim: 4, previa: null, temConteudo: false },
@@ -33,7 +33,31 @@ test('ajustar move a fronteira dos dois vizinhos juntos', () => {
 })
 
 test('um tópico só ocupa todo o material', () => {
-  expect(umSo(f(), 'material')).toMatchObject([{ id: 'a', inicio: 1, fim: 10 }])
+  expect(umSo(f(), 'material', 10)).toMatchObject([{ id: 'a', inicio: 1, fim: 10 }])
+})
+
+test('cortar: excluir deixa trechos de fora, lacunas os lista e criarNaLacuna os traz de volta', () => {
+  const r = excluir(dividir(f(), 0, 1), 0)             // A divide em 1 | 2-4 e o primeiro sai: o trecho 1 fica de fora
+  expect(r.map((x) => [x.inicio, x.fim])).toEqual([[2, 4], [5, 10]])
+  expect(lacunas(r, 10)).toEqual([[1, 1]])
+  expect(lacunas(f(), 10)).toEqual([])
+  expect(lacunas([{ ...f()[0], fim: 3 }, { ...f()[1], inicio: 6, fim: 8 }], 10)).toEqual([[4, 5], [9, 10]])
+  expect(excluir(excluir(f(), 0), 0)).toHaveLength(1)   // sempre sobra um tópico
+  const volta = criarNaLacuna(r, 1, 1)
+  expect(volta.map((x) => [x.inicio, x.fim])).toEqual([[1, 1], [2, 4], [5, 10]])
+  expect(volta[0].id).toBeNull()
+  expect(lacunas(volta, 10)).toEqual([])
+})
+
+test('com trechos de fora: não une, ajustar só mexe no próprio fim, e tópico com conteúdo não sai', () => {
+  const g = excluir(dividir(f(), 1, 7), 1)             // A 1-4 | (5-7 fora) | 8-10
+  expect(g.map((x) => [x.inicio, x.fim])).toEqual([[1, 4], [8, 10]])
+  expect(unir(g, 0)).toEqual(g)                         // unir engoliria os trechos de fora
+  expect(ajustar(g, 0, 6).map((x) => [x.inicio, x.fim])).toEqual([[1, 6], [8, 10]])
+  expect(ajustar(g, 0, 8)).toEqual(g)                   // invadiria o próximo
+  const t = faixasDe(topicos.map((x) => (x.id === 'a' ? { ...x, temConteudo: true } : x)))
+  expect(excluir(t, 0)).toEqual(t)
+  expect(umSo(g, 'm', 10).map((x) => [x.inicio, x.fim])).toEqual([[1, 10]])
 })
 
 test('nome vazio ou longo demais é erro; igual compara conteúdo', () => {
@@ -60,7 +84,7 @@ test('tópico com conteúdo não une, não divide e não move fronteira, mas pod
   expect(unir(t, 0)).toEqual(t)
   expect(dividir(t, 0, 2)).toEqual(t)
   expect(ajustar(t, 0, 6)).toEqual(t) // a fronteira também mudaria o tópico com conteúdo
-  expect(umSo(t, 'm')).toEqual(t)
+  expect(umSo(t, 'm', 10)).toEqual(t)
   expect(dividir(t, 1, 7)).toHaveLength(3) // o tópico livre ao lado continua editável
   expect(dividir(t, 1, 7)[2].bloqueado).toBe(false)
 })

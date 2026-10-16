@@ -1,17 +1,19 @@
 import { useState, type FormEvent } from 'react'
 import { api, definirToken, ErroApi, type Sessao } from './api'
+import { useDevolverFoco } from './foco'
 import Campo, { CampoUsuario } from './Campo'
 import { erroEmail, erroNome, erroObrigatorio, erroSenhaNova, focarPrimeiroInvalido, temErro, type Erros } from './validacao'
 
 type Dados = { nome: string; email: string }
 
 /** Uma seção do perfil: formulário próprio, validação por campo, mensagem de erro ou sucesso e botão travado durante o envio. */
-function Secao({ titulo, aoEnviar, validar, rotuloBotao, perigo, desabilitado, children }: {
-  titulo: string; aoEnviar: () => Promise<string | void>; validar?: () => boolean; rotuloBotao: string; perigo?: boolean; desabilitado?: boolean; children: React.ReactNode
+function Secao({ id, titulo, aoEnviar, validar, rotuloBotao, perigo, desabilitado, children }: {
+  id: string; titulo: string; aoEnviar: () => Promise<string | void>; validar?: () => boolean; rotuloBotao: string; perigo?: boolean; desabilitado?: boolean; children: React.ReactNode
 }) {
   const [erro, setErro] = useState('')
   const [ok, setOk] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const botao = useDevolverFoco(enviando)
   async function enviar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setErro(''); setOk('')
@@ -26,13 +28,13 @@ function Secao({ titulo, aoEnviar, validar, rotuloBotao, perigo, desabilitado, c
     }
   }
   return (
-    <section className={perigo ? 'secao larga perigo' : 'secao'}>
+    <section id={id} className={perigo ? 'secao larga perigo' : 'secao'}>
       <h2>{titulo}</h2>
       <form onSubmit={enviar} noValidate>
         {children}
         {erro && <p role="alert" className="erro">{erro}</p>}
         {ok && <p role="status" className="ok">{ok}</p>}
-        <button type="submit" className={perigo ? 'perigo' : undefined} disabled={enviando || desabilitado}>{enviando ? 'Aguarde…' : rotuloBotao}</button>
+        <button ref={botao} type="submit" className={perigo ? 'perigo' : undefined} disabled={enviando || desabilitado}>{enviando ? 'Aguarde…' : rotuloBotao}</button>
       </form>
     </section>
   )
@@ -42,7 +44,7 @@ export function DadosPessoais({ nomeInicial, aoSalvar }: { nomeInicial: string; 
   const [nome, setNome] = useState(nomeInicial)
   const [erros, setErros] = useState<Erros>({})
   return (
-    <Secao titulo="Dados pessoais" rotuloBotao="Salvar nome"
+    <Secao id="secao-dados" titulo="Dados pessoais" rotuloBotao="Salvar nome"
       validar={() => { const e = { nome: erroNome(nome) }; setErros(e); return !temErro(e) }}
       aoEnviar={async () => { aoSalvar(await api<Dados>('/perfil', { metodo: 'PATCH', corpo: { nome: nome.trim() } })); return 'Nome atualizado.' }}>
       <Campo rotulo="Nome" valor={nome} mudar={(v) => { setNome(v); setErros({}) }} auto="name" erro={erros.nome} />
@@ -55,7 +57,7 @@ export function TrocaEmail({ email }: { email: string }) {
   const [senha, setSenha] = useState('')
   const [erros, setErros] = useState<Erros>({})
   return (
-    <Secao titulo="E-mail" rotuloBotao="Enviar confirmação"
+    <Secao id="secao-email" titulo="E-mail" rotuloBotao="Enviar confirmação"
       validar={() => { const e = { novoEmail: erroEmail(novoEmail), senha: erroObrigatorio(senha, 'Informe a senha atual.') }; setErros(e); return !temErro(e) }}
       aoEnviar={async () => {
         await api('/perfil/email', { corpo: { senhaAtual: senha, novoEmail: novoEmail.trim() } })
@@ -74,7 +76,7 @@ export function TrocaSenha({ email }: { email: string }) {
   const [nova, setNova] = useState('')
   const [erros, setErros] = useState<Erros>({})
   return (
-    <Secao titulo="Senha" rotuloBotao="Alterar senha"
+    <Secao id="secao-senha" titulo="Senha" rotuloBotao="Alterar senha"
       validar={() => { const e = { atual: erroObrigatorio(atual, 'Informe a senha atual.'), nova: erroSenhaNova(nova) }; setErros(e); return !temErro(e) }}
       aoEnviar={async () => {
         const s = await api<Sessao>('/perfil/senha', { metodo: 'PUT', corpo: { senhaAtual: atual, novaSenha: nova } })
@@ -93,7 +95,7 @@ export function ExcluirConta({ email, aoExcluir }: { email: string; aoExcluir: (
   const [senha, setSenha] = useState('')
   const [confirmacao, setConfirmacao] = useState('')
   return (
-    <Secao titulo="Excluir conta" perigo rotuloBotao="Excluir minha conta" desabilitado={!senha || confirmacao !== 'EXCLUIR'}
+    <Secao id="secao-excluir" titulo="Excluir conta" perigo rotuloBotao="Excluir minha conta" desabilitado={!senha || confirmacao !== 'EXCLUIR'}
       aoEnviar={async () => { await api('/perfil', { metodo: 'DELETE', corpo: { senha, confirmacao } }); aoExcluir() }}>
       <p className="sub">Isto apaga a conta e todo o seu conteúdo (materiais, tópicos, questões, provas e histórico). Não há como desfazer.</p>
       <CampoUsuario email={email} />

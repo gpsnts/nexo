@@ -33,7 +33,7 @@ class MaterialController(private val materiais: MaterialService, private val top
         envios.executar { ResponseEntity.status(HttpStatus.ACCEPTED).body(mapOf("materialId" to materiais.enviar(arquivo.originalFilename ?: "arquivo", arquivo.bytes, assuntoId))) }
 
     @GetMapping("/materiais")
-    fun listar() = materiais.listar()
+    fun listar(@RequestParam(defaultValue = "100") limite: Int) = materiais.listar(limite.coerceIn(1, 200))
 
     @GetMapping("/materiais/{id}")
     fun obter(@PathVariable id: UUID) = materiais.obter(id)
@@ -60,4 +60,35 @@ class MaterialController(private val materiais: MaterialService, private val top
 
     @PostMapping("/topicos")
     fun topicoLivre(@Valid @RequestBody r: TopicoLivreRequest) = ResponseEntity.status(HttpStatus.CREATED).body(topicos.criarLivre(r.nome, r.assuntoId))
+}
+
+data class QuestoesRequest(val quantidade: Int = 5)
+
+/** Resumo, questões e andamento da geração (docs/api-materiais.md). 202 + polling em `GET /geracoes/{id}`; o usuário sai sempre do JWT e a RLS isola as contas. */
+@RestController
+class GeracaoController(private val geracao: Geracao) {
+    @GetMapping("/topicos/livres")
+    fun livres(@RequestParam(defaultValue = "100") limite: Int) = geracao.topicosLivres(limite.coerceIn(1, 200))
+
+    @GetMapping("/topicos/{id}")
+    fun topico(@PathVariable id: UUID) = geracao.detalhe(id)
+
+    @GetMapping("/topicos/{id}/resumos")
+    fun resumos(@PathVariable id: UUID) = geracao.resumos(id)
+
+    @GetMapping("/topicos/{id}/questoes")
+    fun questoes(@PathVariable id: UUID) = geracao.questoes(id)
+
+    @PostMapping("/topicos/{id}/resumo")
+    fun resumo(@PathVariable id: UUID) = ResponseEntity.status(HttpStatus.ACCEPTED).body(geracao.pedirResumo(id))
+
+    @PostMapping("/topicos/{id}/questoes")
+    fun gerarQuestoes(@PathVariable id: UUID, @RequestBody(required = false) r: QuestoesRequest?) =
+        ResponseEntity.status(HttpStatus.ACCEPTED).body(geracao.pedirQuestoes(id, (r ?: QuestoesRequest()).quantidade))
+
+    @PostMapping("/geracoes/{id}/cancelar")
+    fun cancelar(@PathVariable id: UUID) = geracao.cancelar(id)
+
+    @GetMapping("/geracoes/{id}")
+    fun andamento(@PathVariable id: UUID) = geracao.consultar(id)
 }

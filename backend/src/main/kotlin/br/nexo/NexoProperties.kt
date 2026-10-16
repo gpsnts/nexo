@@ -23,6 +23,7 @@ data class NexoProperties(
     val revisao: Revisao,
     val processamento: Processamento,
     val material: Material,
+    val geracao: Geracao,
     val jwt: Jwt,
     val login: Login,
     val conta: Conta,
@@ -30,6 +31,9 @@ data class NexoProperties(
     val limitePublico: LimitePublico,
     val seguranca: Seguranca,
 ) {
+    /** US$ por milhão de tokens do embedding: a tabela por modelo e, na falta dele, o preço único do `.env` (modelo trocado sem editar o application.yml). */
+    fun precoEmbedding(modelo: String): BigDecimal? = material.precosEmbeddingUsdPorMilhao[modelo] ?: material.precoEmbeddingUsdPorMilhao
+
     data class Revisao(
         val repeticoesInicial: Int,
         val intervaloInicial: Int,
@@ -42,7 +46,7 @@ data class NexoProperties(
     )
 
     /** [segredo] é compartilhado com o serviço Python (cabeçalho X-Nexo-Segredo); sem valor padrão de propósito. */
-    data class Processamento(val url: String, val segredo: String, val timeout: Duration, val tentativas: Int, val espera: Duration)
+    data class Processamento(val url: String, val segredo: String, val timeout: Duration, val tentativas: Int, val espera: Duration, val saudeTimeout: Duration, val cacheModelos: Duration)
 
     data class Material(
         val diretorio: String,
@@ -59,6 +63,25 @@ data class NexoProperties(
         val maxTopicos: Int,
         val esperasRemocao: List<Duration>,
         val precosEmbeddingUsdPorMilhao: Map<String, BigDecimal>,
+        val precoEmbeddingUsdPorMilhao: BigDecimal? = null,
+    )
+
+    /** Resumo, questões e verificação (F3). O contexto é medido em caracteres (cerca de 4 por token). */
+    /** US$ por milhão de tokens do modelo de linguagem REAL, do painel do provedor. Sem os dois valores, operação com modelo real é recusada (o limite de gasto depende do custo). */
+    data class PrecoLinguagem(val entradaUsdPorMilhao: BigDecimal?, val saidaUsdPorMilhao: BigDecimal?)
+
+    data class Geracao(
+        val assincrono: Boolean,
+        val threads: Int,
+        val fila: Int,
+        val pulsoMaximo: Duration,
+        val contextoMaxCaracteres: Int,
+        val questoesPorPedido: Int,
+        val questoesPorTopico: Int,
+        val resumosPorTopico: Int,
+        val simultaneasPorUsuario: Int,
+        val precoLinguagem: PrecoLinguagem = PrecoLinguagem(null, null),
+        val enunciadosAEvitar: Int,
     )
 
     data class Jwt(val segredo: String, val validadeAcesso: Duration, val validadeRefresh: Duration)

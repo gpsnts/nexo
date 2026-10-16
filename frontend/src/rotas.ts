@@ -1,7 +1,7 @@
 // Rotas do frontend (ADR 0018). Sem biblioteca: são poucas e o servidor já devolve index.html para qualquer caminho (nginx).
-export type NomeRota = 'inicio' | 'perfil' | 'novo' | 'material' | 'entrar' | 'criar' | 'recuperar' | 'redefinir' | 'confirmar' | 'verificar' | 'desconhecida'
+export type NomeRota = 'inicio' | 'perfil' | 'novo' | 'material' | 'topico' | 'entrar' | 'criar' | 'recuperar' | 'redefinir' | 'confirmar' | 'verificar' | 'desconhecida'
 
-const CAMINHOS: Record<Exclude<NomeRota, 'desconhecida' | 'material'>, string> = {
+const CAMINHOS: Record<Exclude<NomeRota, 'desconhecida' | 'material' | 'topico'>, string> = {
   inicio: '/',
   perfil: '/perfil',
   novo: '/novo-estudo',
@@ -13,19 +13,23 @@ const CAMINHOS: Record<Exclude<NomeRota, 'desconhecida' | 'material'>, string> =
   verificar: '/verificar-email',
 }
 
-export const caminhoDe = (n: Exclude<NomeRota, 'desconhecida' | 'material'>) => CAMINHOS[n]
 
 /** /materiais/<id>: a única rota com parâmetro. */
 const MATERIAL = /^\/materiais\/([0-9a-f-]{36})$/i
 export const idDoMaterial = (caminho: string = window.location.pathname) => MATERIAL.exec(caminho.replace(/\/+$/, ''))?.[1] ?? null
 export const urlMaterial = (id: string) => `/materiais/${id}`
+/** /topicos/<id>: resumo e questões de um tópico. */
+const TOPICO = /^\/topicos\/([0-9a-f-]{36})$/i
+export const idDoTopico = (caminho: string = window.location.pathname) => TOPICO.exec(caminho.replace(/\/+$/, ''))?.[1] ?? null
+export const urlTopico = (id: string) => `/topicos/${id}`
 export const ehLink = (n: NomeRota) => n === 'redefinir' || n === 'confirmar' || n === 'verificar'
 export const ehEntrada = (n: NomeRota) => n === 'entrar' || n === 'criar' || n === 'recuperar'
-export const ehInterna = (n: NomeRota) => n === 'inicio' || n === 'perfil' || n === 'novo' || n === 'material'
+export const ehInterna = (n: NomeRota) => n === 'inicio' || n === 'perfil' || n === 'novo' || n === 'material' || n === 'topico'
 
 export function rotaDaUrl(caminho: string = window.location.pathname): NomeRota {
   const limpo = caminho.length > 1 ? caminho.replace(/\/+$/, '') : caminho
   if (idDoMaterial(limpo)) return 'material'
+  if (idDoTopico(limpo)) return 'topico'
   return (Object.entries(CAMINHOS).find(([, c]) => c === limpo)?.[0] as NomeRota | undefined) ?? 'desconhecida'
 }
 
@@ -35,6 +39,6 @@ export function proximoDaUrl(): 'inicio' | 'perfil' {
   return valor && rotaDaUrl(valor) === 'perfil' ? 'perfil' : 'inicio'
 }
 
-export function urlDe(nome: Exclude<NomeRota, 'desconhecida' | 'material'>, proximo?: 'inicio' | 'perfil'): string {
+export function urlDe(nome: Exclude<NomeRota, 'desconhecida' | 'material' | 'topico'>, proximo?: 'inicio' | 'perfil'): string {
   return CAMINHOS[nome] + (proximo && proximo !== 'inicio' ? `?proximo=${encodeURIComponent(CAMINHOS[proximo])}` : '')
 }

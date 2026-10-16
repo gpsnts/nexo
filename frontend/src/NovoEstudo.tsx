@@ -1,13 +1,14 @@
+import { useDevolverFoco } from './foco'
 import { useEffect, useRef, useState } from 'react'
 import { api, ErroApi } from './api'
 import Cabecalho from './Cabecalho'
 import Campo from './Campo'
-import { avisarUso, erroArquivo, formatarTamanho, NOME_MAXIMO, TAMANHO_MAXIMO_MB, type Assunto } from './estudo'
+import { AVISO_IA, avisarUso, erroArquivo, formatarTamanho, NOME_MAXIMO, TAMANHO_MAXIMO_MB, type Assunto } from './estudo'
 import { useTitulo } from './titulo'
 import { erroObrigatorio } from './validacao'
 
-export default function NovoEstudo({ aoIrInicio, aoIrPerfil, aoSair, aoAbrirMaterial }: {
-  aoIrInicio: () => void; aoIrPerfil: () => void; aoSair: () => void; aoAbrirMaterial: (id: string) => void
+export default function NovoEstudo({ aoIrInicio, aoIrPerfil, aoSair, aoAbrirMaterial, aoAbrirTopico }: {
+  aoIrInicio: () => void; aoIrPerfil: () => void; aoSair: () => void; aoAbrirMaterial: (id: string) => void; aoAbrirTopico: (id: string) => void
 }) {
   useTitulo('Novo estudo', true)
   const [assuntos, setAssuntos] = useState<Assunto[]>([])
@@ -29,7 +30,7 @@ export default function NovoEstudo({ aoIrInicio, aoIrPerfil, aoSair, aoAbrirMate
         <h1 tabIndex={-1}>Novo estudo</h1>
         <div className="grade">
           <Envio seletor={seletor('assunto-envio')} assunto={assunto} aoEnviado={aoAbrirMaterial} />
-          <TopicoLivre seletor={seletor('assunto-livre')} assunto={assunto} />
+          <TopicoLivre seletor={seletor('assunto-livre')} assunto={assunto} aoAbrirTopico={aoAbrirTopico} />
         </div>
       </main>
     </div>
@@ -40,6 +41,7 @@ function Envio({ seletor, assunto, aoEnviado }: { seletor: React.ReactNode; assu
   const [arquivo, setArquivo] = useState<File | null>(null)
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
+  const botao = useDevolverFoco(enviando)
   const [existente, setExistente] = useState<string | null>(null)
   const campo = useRef<HTMLInputElement>(null)
 
@@ -68,39 +70,44 @@ function Envio({ seletor, assunto, aoEnviado }: { seletor: React.ReactNode; assu
     <section className="secao" aria-labelledby="titulo-envio">
       <h2 id="titulo-envio">Enviar material</h2>
       <p className="sub">PDF, DOCX ou TXT, até {TAMANHO_MAXIMO_MB} MB e 50 páginas.</p>
+      <p className="sub privacidade">{AVISO_IA.material}</p>
       <form noValidate onSubmit={enviar}>
         <div className="campo">
           <label htmlFor="arquivo">Arquivo</label>
-          <input id="arquivo" ref={campo} type="file" accept=".pdf,.docx,.txt" aria-invalid={erro ? true : undefined} aria-describedby={erro ? 'erro-arquivo' : undefined}
-            onChange={(e) => { setArquivo(e.target.files?.[0] ?? null); setErro('') }} />
-          {arquivo && !erro && <small>{arquivo.name} · {formatarTamanho(arquivo.size)}</small>}
+          {/* O controle nativo mostra "Choose File" no idioma do navegador: o botão é um rótulo próprio e o <input> fica só para leitores de tela e teclado. */}
+          <div className="arquivo">
+            <input id="arquivo" ref={campo} type="file" className="sr-only" accept=".pdf,.docx,.txt" aria-invalid={erro ? true : undefined} aria-describedby={erro ? 'erro-arquivo' : undefined}
+              onChange={(e) => { setArquivo(e.target.files?.[0] ?? null); setErro('') }} />
+            <label htmlFor="arquivo" className="botao-arquivo">Escolher arquivo</label>
+            <span className="sub">{arquivo ? `${arquivo.name} · ${formatarTamanho(arquivo.size)}` : 'Nenhum arquivo escolhido'}</span>
+          </div>
           {erro && <p id="erro-arquivo" role="alert" className="erro">{erro}</p>}
         </div>
         {seletor}
         {existente && <p><a href={`/materiais/${existente}`} onClick={(e) => { e.preventDefault(); aoEnviado(existente) }}>Abrir o material já enviado</a></p>}
         {enviando && <p className="sub" role="status">Enviando… arquivos grandes podem levar alguns segundos. Não feche a página.</p>}
-        <button type="submit" disabled={enviando}>{enviando ? 'Enviando o arquivo…' : 'Enviar material'}</button>
+        <button ref={botao} type="submit" disabled={enviando}>{enviando ? 'Enviando o arquivo…' : 'Enviar material'}</button>
       </form>
     </section>
   )
 }
 
-function TopicoLivre({ seletor, assunto }: { seletor: React.ReactNode; assunto: string }) {
+function TopicoLivre({ seletor, assunto, aoAbrirTopico }: { seletor: React.ReactNode; assunto: string; aoAbrirTopico: (id: string) => void }) {
   const [nome, setNome] = useState('')
   const [erro, setErro] = useState('')
   const [erroServidor, setErroServidor] = useState('')
   const [salvando, setSalvando] = useState(false)
-  const [feito, setFeito] = useState('')
+  const botao = useDevolverFoco(salvando)
 
   const criar = async (e: React.FormEvent) => {
     e.preventDefault()
     const problema = erroObrigatorio(nome, 'Informe o nome do tópico.') || (nome.trim().length > NOME_MAXIMO ? `O nome pode ter até ${NOME_MAXIMO} caracteres.` : '')
-    setErro(problema); setErroServidor(''); setFeito('')
+    setErro(problema); setErroServidor('')
     if (problema) return
     setSalvando(true)
     try {
-      await api('/topicos', { corpo: { nome: nome.trim(), assuntoId: assunto || null } })
-      setFeito(`Tópico "${nome.trim()}" registrado.`); setNome('')
+      const criado = await api<{ id: string }>('/topicos', { corpo: { nome: nome.trim(), assuntoId: assunto || null } })
+      aoAbrirTopico(criado.id)  // o próximo passo é gerar resumo e questões: leva direto ao tópico
     } catch (x) {
       setErroServidor(x instanceof ErroApi ? x.message : 'Não foi possível registrar. Tente novamente.')
     } finally {
@@ -112,12 +119,12 @@ function TopicoLivre({ seletor, assunto }: { seletor: React.ReactNode; assunto: 
     <section className="secao" aria-labelledby="titulo-livre">
       <h2 id="titulo-livre">Informar tópico</h2>
       <p className="sub">Sem material em mãos? Digite o tema que quer estudar.</p>
+      <p className="sub privacidade">{AVISO_IA.topicoLivre}</p>
       <form noValidate onSubmit={criar}>
         <Campo rotulo="Tópico" valor={nome} mudar={setNome} erro={erro} dica="Ex.: Movimento Retilíneo Uniforme" />
         {seletor}
         {erroServidor && <p role="alert" className="erro">{erroServidor}</p>}
-        {feito && <p role="status" className="ok">{feito}</p>}
-        <button type="submit" disabled={salvando}>{salvando ? 'Aguarde…' : 'Registrar tópico'}</button>
+        <button ref={botao} type="submit" disabled={salvando}>{salvando ? 'Aguarde…' : 'Registrar tópico'}</button>
       </form>
     </section>
   )

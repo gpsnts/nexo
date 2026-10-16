@@ -26,6 +26,7 @@ class Reorganizacao(
     private val tx: TransactionTemplate,
     private val props: NexoProperties,
     private val limites: LimitesIa,
+    private val precos: PrecosIa,
 ) {
     private val emAndamento = ConcurrentHashMap.newKeySet<UUID>()  // um pedido por material por vez (o clique repetido não gasta duas chamadas)
 
@@ -40,24 +41,24 @@ class Reorganizacao(
         if (!emAndamento.add(materialId)) throw ErroNegocio(HttpStatus.CONFLICT, "Já há uma reorganização em andamento para este material.", "reorganizacao_em_andamento")
         try {
             val resumos = tx.execute { dados.resumosDosTrechos(materialId, PREVIA) }
-            val modeloLinguagem = try { proc.modelos().first } catch (e: FalhaProcessamento) { throw indisponivel() }
+            val modeloLinguagem = try { proc.modelos().first } catch (e: FalhaProcessamento) { throw indisponivel(e.codigo) }
             val registro = UUID.randomUUID()
             tx.executeWithoutResult { dados.criarRegistro(registro, uid, materialId, "sugestao_topicos", modeloLinguagem, 10) }
 
             val r = try {
                 proc.reorganizar(resumos, atuais.map { TopicoAtual(it.nome, it.inicio!!, it.fim!!, it.temConteudo) })
             } catch (e: FalhaProcessamento) {
-                tx.executeWithoutResult { dados.falharRegistro(registro, modeloLinguagem, 0, 0) }
-                throw indisponivel()
+                tx.executeWithoutResult { dados.falharRegistro(registro, modeloLinguagem, 0, 0, "falha_ia") }
+                throw indisponivel(e.codigo)
             }
 
             val faixas = r.topicos.map { FaixaTopico(null, it.nome, it.inicio, it.fim) }
             val congeladosIntactos = atuais.filter { it.temConteudo }.all { c -> r.topicos.any { it.inicio == c.inicio && it.fim == c.fim } }
             if (Cobertura.validar(faixas, resumos.size, props.material.maxTopicos) != null || !congeladosIntactos) {
-                tx.executeWithoutResult { dados.falharRegistro(registro, r.modelo, r.tokensEntrada, r.tokensSaida) }
+                tx.executeWithoutResult { dados.falharRegistro(registro, r.modelo, r.tokensEntrada, r.tokensSaida, "falha_ia", precos.custoLinguagem(r.modelo, r.tokensEntrada, r.tokensSaida)) }
                 throw ErroNegocio(HttpStatus.UNPROCESSABLE_ENTITY, "A IA não devolveu uma divisão válida. Nada foi alterado.", "proposta_ia_invalida")
             }
-            tx.executeWithoutResult { dados.concluirRegistro(registro, r.modelo, r.tokensEntrada, r.tokensSaida, BigDecimal.ZERO) }  // sem tabela de preço de linguagem ainda (ADR 0026)
+            tx.executeWithoutResult { dados.concluirRegistro(registro, r.modelo, r.tokensEntrada, r.tokensSaida, precos.custoLinguagem(r.modelo, r.tokensEntrada, r.tokensSaida)) }
 
             val porFaixa = atuais.associateBy { it.inicio to it.fim }
             val rascunho = r.topicos.map { p -> porFaixa[p.inicio to p.fim].let { TopicoRascunho(it?.id, p.nome.trim(), p.inicio, p.fim, it?.temConteudo ?: false) } }
@@ -68,7 +69,7 @@ class Reorganizacao(
         }
     }
 
-    private fun indisponivel() = ErroNegocio(HttpStatus.SERVICE_UNAVAILABLE, "O modelo de linguagem não respondeu. Tente novamente em instantes.", "ia_indisponivel")
+    private fun indisponivel(codigo: String? = null) = ErroNegocio(HttpStatus.SERVICE_UNAVAILABLE, MensagensIa.deCodigo(codigo), "ia_indisponivel")
 
     companion object {
         const val PREVIA = 100

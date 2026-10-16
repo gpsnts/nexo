@@ -46,3 +46,23 @@ export async function enviarMaterial(page: Page, arquivo: string) {
   await page.getByLabel('Arquivo').setInputFiles(arquivo)
   await page.getByRole('button', { name: 'Enviar material' }).click()
 }
+
+/** Reinicia o backend do compose e espera ele voltar saudável (derruba tarefas em segundo plano: simula uma queda no meio de uma geração). */
+export async function reiniciarBackend() {
+  execFileSync('docker', ['compose', 'restart', 'backend'], { cwd: RAIZ, stdio: 'pipe' })
+  for (let i = 0; i < 60; i++) {
+    const status = execFileSync('docker', ['compose', 'ps', 'backend', '--format', '{{.Status}}'], { cwd: RAIZ, encoding: 'utf8' })
+    if (status.includes('(healthy)')) return
+    await new Promise((r) => setTimeout(r, 1000))
+  }
+  throw new Error('o backend não voltou saudável em 60 s')
+}
+
+/** Roda SQL no banco do compose como dono (ignora a RLS): prepara dados que a tela não cria sozinha. */
+export function sql(consulta: string) {
+  try {
+    return execFileSync('docker', ['compose', 'exec', '-T', 'db', 'psql', '-U', 'nexo_dono', '-d', 'nexo', '-v', 'ON_ERROR_STOP=1', '-c', consulta], { cwd: RAIZ, stdio: 'pipe' })
+  } catch (e) {
+    throw new Error(`SQL falhou: ${(e as { stderr?: Buffer }).stderr?.toString() ?? e}`)
+  }
+}

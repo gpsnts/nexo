@@ -15,7 +15,7 @@ class EstruturaTest {
     }
 
     private fun cobre(t: List<br.nexo.material.TopicoProposto>, total: Int) =
-        Cobertura.validar(t.map { FaixaTopico(null, it.nome, it.inicio, it.fim) }, total, 100) == null
+        Cobertura.cobreTudo(t.map { FaixaTopico(null, it.nome, it.inicio, it.fim) }, total, 100)
 
     @Test
     fun `cada capitulo vira um topico e o que vem antes do primeiro titulo forma a introducao`() {

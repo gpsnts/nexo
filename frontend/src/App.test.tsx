@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import App from './App'
 
@@ -8,7 +8,7 @@ type Rota = (corpo: any, headers: Record<string, string>) => [number, unknown?]
 function servidor(rotas: Record<string, Rota | [number, unknown?]>) {
   const chamadas: { chave: string; corpo: any; headers: Record<string, string> }[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
-    const chave = `${init.method ?? 'GET'} ${url.replace('/api', '')}`
+    const chave = `${init.method ?? 'GET'} ${url.replace('/api', '').split('?')[0]}`
     const corpo = init.body ? JSON.parse(init.body as string) : undefined
     const headers = (init.headers ?? {}) as Record<string, string>
     chamadas.push({ chave, corpo, headers })
@@ -321,10 +321,12 @@ test('sair em outra aba derruba esta; entrar em outra abre a sessão aqui', asyn
   sessaoAberta()
   render(<App />)
   await screen.findByText('Olá, Ana')
+  await act(async () => {})  // deixa os efeitos passivos rodarem: o ouvinte de storage lê um ref que eles atualizam (sem isto o teste era intermitente)
   localStorage.removeItem('nexo-sessao')
   window.dispatchEvent(new StorageEvent('storage', { key: 'nexo-sessao', newValue: null }))
   expect(await screen.findByText('Você saiu em outra aba.')).toBeTruthy()
   expect(screen.getByRole('heading', { name: 'Entrar' })).toBeTruthy()
+  await act(async () => {})
   localStorage.setItem('nexo-sessao', '1')
   window.dispatchEvent(new StorageEvent('storage', { key: 'nexo-sessao', newValue: '1' }))
   expect(await screen.findByText('Olá, Ana')).toBeTruthy()
@@ -509,7 +511,7 @@ test('o Início mostra carregando e depois o estado vazio de materiais; há link
   render(<App />)
   expect(await screen.findByText('Olá, Ana')).toBeTruthy()
   expect(await screen.findByText('Geral')).toBeTruthy()
-  expect(await screen.findByText(/ainda não enviou nenhum material/)).toBeTruthy()
+  expect(await screen.findByText(/ainda não tem nenhum estudo/)).toBeTruthy()
   fireEvent.click(screen.getByText('Pular para o conteúdo'))
   expect(document.activeElement?.id).toBe('conteudo')
 })

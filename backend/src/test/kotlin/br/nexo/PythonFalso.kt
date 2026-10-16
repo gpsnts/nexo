@@ -15,27 +15,55 @@ class PythonFalso(val segredo: String) {
     val chamadas = CopyOnWriteArrayList<String>()
     val falhasEmbeddings = AtomicInteger(0)  // quantas chamadas de embeddings devolvem 500 antes de funcionar
     @Volatile var propostaReorganizar: String = "[]"
+    @Volatile var codigoReorganizar: String? = null  // com statusReorganizar: devolve {"detail":{"codigo":...}} como o serviço real faz com os erros do provedor
     @Volatile var statusReorganizar: Int? = null  // reorganizar responde este status enquanto definido
     @Volatile var atrasoReorganizarMs = 0L
     @Volatile var statusInspecao: Int? = null  // inspecionar responde este status (ex.: 401 de segredo errado) enquanto definido
     @Volatile var falharProcessar = false  // processar devolve 422 sem_texto enquanto ligado
     @Volatile var propostaTopicos: String = "[]"
     @Volatile var segredoRecebidoErrado = false
+    @Volatile var modeloEmbedding = "embedding-falso"  // nome do modelo de embedding em /saude (um nome sem "falso" simula embedding real)
+    @Volatile var modeloLinguagem = "linguagem-falso"  // nome devolvido em /saude e nas respostas (um nome sem "falso" simula modelo real)
+    @Volatile var statusGeracao: Int? = null  // resumo, questões e verificação respondem este status enquanto definido
+    @Volatile var reprovar: (String) -> Boolean = { false }  // a verificação reprova o enunciado quando devolve true
+    @Volatile var semApoio = false  // a verificação aprova mas não cita trechos
+    @Volatile var naoSustentada = false  // a verificação diz que a resposta marcada não é a única correta
+    val roteiroQuestoes = java.util.concurrent.ConcurrentLinkedQueue<String>()  // JSON do array "questoes" das próximas chamadas (vazio: gera válidas e únicas)
+    val corpos = CopyOnWriteArrayList<String>()  // "rota:corpo" de cada chamada de geração
+    @Volatile var aoReceber: ((String) -> Unit)? = null  // executado quando uma rota de geração é chamada, antes de responder (simula o usuário agindo no meio de uma geração)
+    private val sequencia = AtomicInteger(0)
+    private val json = tools.jackson.databind.json.JsonMapper.builder().build()
     private val servidor: HttpServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
     val url get() = "http://127.0.0.1:${servidor.address.port}"
 
     init {
-        servidor.createContext("/saude") { responder(it, 200, """{"status":"UP","modelo_linguagem":"linguagem-falso","modelo_embedding":"embedding-falso"}""") }
+        servidor.createContext("/saude") { chamadas += "saude"; responder(it, 200, """{"status":"UP","modelo_linguagem":"$modeloLinguagem","modelo_embedding":"$modeloEmbedding"}""") }
         servidor.createContext("/interno/inspecionar") { interno(it) { x, arq -> inspecionar(x, arq) } }
         servidor.createContext("/interno/processar") { interno(it) { x, arq -> processar(x, arq) } }
         servidor.createContext("/interno/embeddings") { interno(it) { x, corpo -> embeddings(x, corpo) } }
         servidor.createContext("/interno/reorganizar") { interno(it) { x, _ ->
             chamadas += "reorganizar"
             if (atrasoReorganizarMs > 0) Thread.sleep(atrasoReorganizarMs)
-            statusReorganizar?.let { s -> return@interno responder(x, s, """{"detail":"falha"}""") }
-            responder(x, 200, """{"topicos":$propostaReorganizar,"tokens_entrada":21,"tokens_saida":9,"modelo":"linguagem-falso"}""")
+            statusReorganizar?.let { s -> return@interno responder(x, s, codigoReorganizar?.let { c -> """{"detail":{"codigo":"$c","mensagem":"do provedor"}}""" } ?: """{"detail":"falha"}""") }
+            responder(x, 200, """{"topicos":$propostaReorganizar,"tokens_entrada":21,"tokens_saida":9,"modelo":"$modeloLinguagem"}""")
         } }
-        servidor.createContext("/interno/topicos") { interno(it) { x, _ -> chamadas += "topicos"; responder(x, 200, """{"topicos":$propostaTopicos,"tokens_entrada":11,"tokens_saida":7,"modelo":"linguagem-falso"}""") } }
+        servidor.createContext("/interno/topicos") { interno(it) { x, _ -> chamadas += "topicos"; responder(x, 200, """{"topicos":$propostaTopicos,"tokens_entrada":11,"tokens_saida":7,"modelo":"$modeloLinguagem"}""") } }
+        servidor.createContext("/interno/resumo") { interno(it) { x, c -> geracao(x, "resumo", c) {
+            responder(x, 200, """{"texto":"Resumo de teste","tokens_entrada":30,"tokens_saida":12,"modelo":"$modeloLinguagem"}""")
+        } } }
+        servidor.createContext("/interno/questoes") { interno(it) { x, c -> geracao(x, "questoes", c) {
+            val n = json.readTree(c)["quantidade"].asInt()
+            val roteiro = roteiroQuestoes.poll()
+            val questoes = roteiro ?: (1..n).joinToString(",", "[", "]") {
+                val k = sequencia.incrementAndGet()
+                """{"enunciado":"Pergunta única $k sobre o tema?","correta":"Certa $k","erradas":["Errada A","Errada B","Errada C"],"ordens":[1]}"""
+            }
+            responder(x, 200, """{"questoes":$questoes,"tokens_entrada":50,"tokens_saida":40,"modelo":"$modeloLinguagem"}""")
+        } } }
+        servidor.createContext("/interno/verificar") { interno(it) { x, c -> geracao(x, "verificar", c) {
+            val ok = !reprovar(json.readTree(c)["questao"]["enunciado"].asString())
+            responder(x, 200, """{"sustentada":$ok,"unica_correta":${!naoSustentada},"ordens":${if (semApoio || !ok) "[]" else "[1]"},"motivo":"teste","tokens_entrada":20,"tokens_saida":5,"modelo":"$modeloLinguagem"}""")
+        } } }
         servidor.executor = java.util.concurrent.Executors.newCachedThreadPool()
         servidor.start()
     }
@@ -99,6 +127,14 @@ class PythonFalso(val segredo: String) {
         val n = Regex("\"textos\":\\[(.*)]", RegexOption.DOT_MATCHES_ALL).find(String(corpo))!!.groupValues[1].split("\",\"").size
         val vetor = (1..1536).joinToString(",", "[", "]") { "0.01" }
         responder(x, 200, """{"vetores":[${List(n) { vetor }.joinToString(",")}],"tokens":${n * 10},"modelo":"embedding-falso"}""")
+    }
+
+    private fun geracao(x: HttpExchange, rota: String, corpo: ByteArray, resposta: () -> Unit) {
+        chamadas += rota
+        corpos += "$rota:${String(corpo)}"
+        aoReceber?.invoke(rota)
+        statusGeracao?.let { return responder(x, it, """{"detail":"falha"}""") }
+        resposta()
     }
 
     private fun responder(x: HttpExchange, status: Int, corpo: String) {
