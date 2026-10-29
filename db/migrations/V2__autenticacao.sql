@@ -1,4 +1,4 @@
--- F1b: bloqueio de login, sessões de refresh token e tokens de uso único da conta (ADR 0008, 0010, 0011).
+-- Bloqueio de login, sessões de refresh token e tokens de uso único da conta.
 
 ALTER TABLE usuario
   ADD COLUMN falhas_login  integer NOT NULL DEFAULT 0 CHECK (falhas_login >= 0),
@@ -38,5 +38,5 @@ CREATE INDEX token_conta_usuario_idx ON token_conta (usuario_id);
 CREATE TRIGGER sessao_atualizado_em BEFORE UPDATE ON sessao FOR EACH ROW EXECUTE FUNCTION definir_atualizado_em();
 CREATE TRIGGER token_conta_atualizado_em BEFORE UPDATE ON token_conta FOR EACH ROW EXECUTE FUNCTION definir_atualizado_em();
 
--- Sem RLS de propósito (como usuario): são lidas antes de haver usuário autenticado, pelo hash de um segredo de 256 bits (ADR 0010).
+-- Sem RLS de propósito (como usuario): são lidas antes de haver usuário autenticado, pelo hash de um segredo de 256 bits.
 GRANT SELECT, INSERT, UPDATE, DELETE ON sessao, token_conta TO nexo_app;

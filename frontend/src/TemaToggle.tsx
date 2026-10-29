@@ -8,8 +8,16 @@ const icones: Record<Tema, React.ReactNode> = {
 }
 const nomes: Record<Tema, string> = { claro: 'Tema claro', escuro: 'Tema escuro', sistema: 'Tema do sistema' }
 
+/**
+ * Seletor de tema (claro, sistema, escuro) com botões de ícone.
+ * @returns o grupo de botões.
+ */
 export default function TemaToggle() {
   const [tema, setTema] = useState(lerTema)
+  /**
+   * Aplica e guarda o tema escolhido.
+   * @param t tema escolhido.
+   */
   const escolher = (t: Tema) => { aplicarTema(t); setTema(t) }
   return (
     <div className="tema" role="group" aria-label="Tema">

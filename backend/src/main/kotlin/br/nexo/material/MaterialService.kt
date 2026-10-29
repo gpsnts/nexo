@@ -14,9 +14,18 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
-data class MaterialDto(val id: UUID, val nomeArquivo: String, val status: String, val motivoFalha: String?, val paginas: Int?, val criadoEm: Instant, val gerando: Boolean = false)
+/** `titulo`: nome dado ao estudo (nulo = vale o nome do arquivo); `assuntoId`: a pasta (nulo enquanto o material não tem tópicos). */
+data class MaterialDto(val id: UUID, val nomeArquivo: String, val status: String, val motivoFalha: String?, val paginas: Int?, val criadoEm: Instant, val gerando: Boolean = false, val titulo: String? = null, val assuntoId: UUID? = null)
+/**
+ * Andamento da indexação, para a barra de progresso.
+ * @property status status do material.
+ * @property etapa etapa corrente (na_fila, extracao, embeddings, topicos, concluido, falhou).
+ * @property percentual 0 a 100 (100 só quando pronto).
+ * @property motivoFalha motivo, se falhou.
+ */
 data class Andamento(val status: String, val etapa: String, val percentual: Int, val motivoFalha: String?)
 
+/** Materiais: envio com validações, listagem, andamento da indexação, trechos e tópicos. */
 @Service
 class MaterialService(
     private val props: NexoProperties,
@@ -32,11 +41,32 @@ class MaterialService(
     private val relogio: Clock,
     private val limites: LimitesIa,
 ) {
+    /**
+     * Usuário autenticado.
+     * @return id do usuário do JWT.
+     * @throws ErroNegocio 401 se não houver usuário.
+     */
     private fun usuario() = UsuarioAtual.id() ?: throw ErroNegocio(HttpStatus.UNAUTHORIZED, "Não autenticado.", "nao_autenticado")
+    /**
+     * Erro padrão de material inexistente.
+     * @return erro 404 `nao_encontrado`.
+     */
     private fun naoEncontrado() = ErroNegocio(HttpStatus.NOT_FOUND, "Material não encontrado.", "nao_encontrado")
+    /**
+     * Converte bytes em hexadecimal.
+     * @param b bytes.
+     * @return texto hexadecimal minúsculo.
+     */
     private fun hex(b: ByteArray) = b.joinToString("") { "%02x".format(it) }
 
-    /** UC02 passos 3 e 4. Devolve o id do material (status pendente); a indexação segue em segundo plano. */
+    /**
+     * Valida, grava o arquivo e agenda a indexação em segundo plano.
+     * @param nomeOriginal nome do arquivo enviado.
+     * @param bytes conteúdo do arquivo.
+     * @param assuntoId pasta de destino, ou nulo para o "Geral".
+     * @return o id do material (status pendente).
+     * @throws ErroNegocio formato, tamanho, páginas, arquivo repetido, processamento em andamento, limites de IA ou serviço indisponível.
+     */
     fun enviar(nomeOriginal: String, bytes: ByteArray, assuntoId: UUID?): UUID {
         val uid = usuario()
         val nome = nomeOriginal.substringAfterLast('/').substringAfterLast('\\').trim().take(255)
@@ -75,7 +105,7 @@ class MaterialService(
         val linha = MaterialLinha(id, nome, MIME.getValue(insp.tipo), bytes.size.toLong(), insp.paginas, hash, chave, "pendente", null, Instant.EPOCH, Instant.EPOCH)
         try {
             tx.executeWithoutResult {
-                // Reenvio após falha (UC02 A4): remove o registro anterior com a mesma rotina da exclusão de material (regra 6).
+                // Reenvio após falha: remove o registro anterior com a mesma rotina da exclusão de material.
                 val antigos = dados.materiaisPorHashFalhos(hash).mapNotNull { dados.excluirMaterial(it.id) }
                 dados.inserirMaterial(id, uid, linha)
                 if (antigos.isNotEmpty()) remocao.depoisDoCommit(chaves = antigos)
@@ -97,16 +127,37 @@ class MaterialService(
         return id
     }
 
+    /**
+     * Lista os materiais do usuário, do mais novo ao mais antigo.
+     * @param limite máximo de itens.
+     * @return os materiais, marcando os que estão gerando conteúdo.
+     */
     fun listar(limite: Int): List<MaterialDto> = tx.execute {
         val gerando = geracaoDados.materiaisGerando(props.geracao.pulsoMaximo.seconds)
         dados.materiais(limite).map { dto(it).copy(gerando = it.id in gerando) }
     }!!
 
+    /**
+     * Busca um material.
+     * @param id material.
+     * @return o material.
+     * @throws ErroNegocio 404 se não existir.
+     */
     fun obter(id: UUID): MaterialDto = tx.execute { dados.material(id)?.let(::dto) }  ?: throw naoEncontrado()
 
-    private fun dto(m: MaterialLinha) = MaterialDto(m.id, m.nomeArquivo, m.status, m.motivoFalha, m.paginas, m.criadoEm)
+    /**
+     * Converte a linha do banco em DTO.
+     * @param m linha do material.
+     * @return o DTO.
+     */
+    private fun dto(m: MaterialLinha) = MaterialDto(m.id, m.nomeArquivo, m.status, m.motivoFalha, m.paginas, m.criadoEm, false, m.titulo, m.assuntoId)
 
-    /** Barra de progresso (regra 14): indexação vale 0 a 85 e a sugestão de tópicos 85 a 100. Detecta tarefa perdida (reinício) sem varrer outras contas. */
+    /**
+     * Barra de progresso: indexação vale 0 a 85 e a sugestão de tópicos 85 a 100. Detecta tarefa perdida (reinício) sem varrer outras contas.
+     * @param id material.
+     * @return status, etapa e percentual.
+     * @throws ErroNegocio 404 se não existir.
+     */
     fun andamento(id: UUID): Andamento {
         var m = tx.execute { dados.material(id) } ?: throw naoEncontrado()
         if (m.status in ABERTOS && id !in indexador.ativos) {
@@ -139,6 +190,14 @@ class MaterialService(
         return Andamento(m.status, etapa, pct, m.motivoFalha)
     }
 
+    /**
+     * Prévia dos trechos de um material.
+     * @param id material.
+     * @param de primeira ordem (inclusive).
+     * @param ate última ordem (inclusive; no máximo 200 por chamada).
+     * @return os trechos do intervalo.
+     * @throws ErroNegocio 400 se o intervalo for inválido; 404 se o material não existir.
+     */
     fun trechos(id: UUID, de: Int, ate: Int): List<Dados.TrechoPrevia> {
         if (ate < de) throw ErroNegocio(HttpStatus.BAD_REQUEST, "Intervalo inválido.", "dados_invalidos")
         return tx.execute {
@@ -147,11 +206,22 @@ class MaterialService(
         }
     }
 
+    /**
+     * Página de cada trecho do material, na ordem.
+     * @param id material.
+     * @return número da página de cada trecho (nulo em TXT e DOCX).
+     * @throws ErroNegocio 404 se não existir.
+     */
     fun paginas(id: UUID): List<Int?> = tx.execute {
         if (dados.material(id) == null) throw naoEncontrado()
         dados.paginasDosTrechos(id)
     }
 
+    /**
+     * Tópicos de um material.
+     * @param id material.
+     * @return os tópicos do material.
+     */
     fun topicosDoMaterial(id: UUID) = tx.execute { topicos.doMaterial(id) }
 
     companion object {

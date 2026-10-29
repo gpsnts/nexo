@@ -20,7 +20,7 @@ class BackendApplicationTests : BaseIntegracao() {
     }
 
     @Test
-    fun `parametros padrao do CLAUDE md`() {
+    fun `parametros padrao padrão`() {
         assertEquals(30, props.limiteOperacoesPorHora)
         assertEquals(0.90, props.limiarSimilaridadeRepeticao)
         assertEquals("America/Sao_Paulo", props.fuso.id)

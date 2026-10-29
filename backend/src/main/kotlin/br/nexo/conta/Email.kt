@@ -7,11 +7,18 @@ import org.springframework.mail.SimpleMailMessage
 import org.springframework.mail.javamail.JavaMailSender
 import org.springframework.stereotype.Component
 
-/** Envio de e-mail atrás de uma interface, como as de IA (ADR 0011): falso por padrão, SMTP por configuração. */
+/** Envio de e-mail atrás de uma interface, como as de IA: falso por padrão, SMTP por configuração. */
 interface EnviadorEmail {
+    /**
+     * Envia um e-mail de texto simples.
+     * @param para endereço do destinatário.
+     * @param assunto assunto da mensagem.
+     * @param texto corpo da mensagem.
+     */
     fun enviar(para: String, assunto: String, texto: String)
 }
 
+/** Provedor falso de e-mail: só escreve a mensagem no log (desenvolvimento e testes). */
 @Component
 @ConditionalOnProperty("nexo.email.provedor", havingValue = "falso", matchIfMissing = true)
 class EnviadorEmailLog : EnviadorEmail {
@@ -21,6 +28,7 @@ class EnviadorEmailLog : EnviadorEmail {
     }
 }
 
+/** Provedor de e-mail por SMTP, usando o remetente configurado em `nexo.email`. */
 @Component
 @ConditionalOnProperty("nexo.email.provedor", havingValue = "smtp")
 class EnviadorEmailSmtp(private val remetente: JavaMailSender, private val props: NexoProperties) : EnviadorEmail {

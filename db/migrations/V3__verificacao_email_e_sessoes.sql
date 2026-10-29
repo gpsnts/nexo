@@ -1,4 +1,4 @@
--- F1c: verificação de e-mail no cadastro (ADR 0014) e dados de dispositivo para a lista de sessões (ADR 0015).
+-- Verificação de e-mail no cadastro e dados de dispositivo para a lista de sessões.
 
 -- Contas anteriores à verificação ficam como verificadas (não há como pedir confirmação retroativa de quem já usa a conta).
 ALTER TABLE usuario ADD COLUMN email_verificado_em timestamptz;

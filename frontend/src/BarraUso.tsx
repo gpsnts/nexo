@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api'
-import { EVENTO_USO, formatarDolar, nivelDoUso, percentualUso, type Uso } from './estudo'
+import { EVENTO_USO, nivelDoUso, percentualUso, quandoRenova, type Uso } from './estudo'
 
 /**
- * Barra de uso de IA no cabeçalho de todas as telas internas (ADR 0033): mostra o que está mais perto do limite (operações por hora ou gasto
- * na janela). Clicar abre os detalhes. Atualiza ao abrir cada tela e quando algo gasta IA (envio, reorganização, fim da indexação).
- * Sem o dado (falha ao consultar), a barra simplesmente não aparece: ela só informa, quem decide é o servidor.
+ * Barra de uso de IA no cabeçalho de todas as telas internas: mostra a porcentagem da cota semanal e, ao clicar, os detalhes e quando renova. Atualiza ao abrir cada tela e quando algo gasta IA (envio, reorganização, fim da indexação). Sem o dado (falha ao consultar), a barra simplesmente não aparece: ela só informa, quem decide é o servidor.
+ * @returns a barra, ou nada se o uso não estiver disponível.
  */
 export default function BarraUso() {
   const [uso, setUso] = useState<Uso | null>(null)
@@ -21,7 +20,15 @@ export default function BarraUso() {
 
   useEffect(() => {
     if (!aberto) return
+    /**
+     * Fecha o painel ao clicar fora.
+     * @param e evento de mouse.
+     */
     const fora = (e: MouseEvent) => { if (!raiz.current?.contains(e.target as Node)) setAberto(false) }
+    /**
+     * Fecha o painel com a tecla Esc.
+     * @param e evento de teclado.
+     */
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAberto(false) }
     document.addEventListener('mousedown', fora)
     document.addEventListener('keydown', esc)
@@ -31,22 +38,20 @@ export default function BarraUso() {
   if (!uso) return null
   const pct = percentualUso(uso)
   const nivel = nivelDoUso(uso)
-  const pctOps = Math.min(100, Math.round((uso.operacoes / uso.limiteOperacoes) * 100))
-  const pctGasto = Math.min(100, Math.round((uso.gastoUsd / uso.limiteGastoUsd) * 100))
-  const resumoOps = `${uso.operacoes} de ${uso.limiteOperacoes} operações ${uso.janelaOperacoesMinutos === 60 ? 'na última hora' : `nos últimos ${uso.janelaOperacoesMinutos} minutos`}`
-  const resumoGasto = `${formatarDolar(uso.gastoUsd)} de ${formatarDolar(uso.limiteGastoUsd)} em ${uso.janelaGastoDias} dias`
+  const renova = quandoRenova(uso.renovaEm)
 
   return (
     <div className="uso-barra" ref={raiz}>
       <button type="button" className="uso-botao" aria-expanded={aberto} aria-controls="painel-uso" onClick={() => setAberto(!aberto)}>
-        <span className="uso-rotulo">Uso de IA</span>
-        <progress className={`barra uso ${nivel}`} max={100} value={pct} aria-label="Uso de IA" aria-valuetext={`${pct}% do limite. ${resumoOps}; ${resumoGasto}`} />
+        <span className="uso-rotulo">Uso de IA <strong>{pct}%</strong></span>
+        <progress className={`barra uso ${nivel}`} max={100} value={pct} aria-label="Uso de IA" aria-valuetext={`${pct}% da cota da semana usada. Renova ${renova}.`} />
       </button>
       {aberto && (
         <div id="painel-uso" className="uso-painel" role="region" aria-label="Detalhes do uso de IA">
-          <p className="uso-linha"><span>Operações</span><progress className={`barra uso ${nivelDoUso({ ...uso, gastoUsd: 0 })}`} max={100} value={pctOps} aria-label="Operações com IA" /><small>{resumoOps}</small></p>
-          <p className="uso-linha"><span>Gasto</span><progress className={`barra uso ${nivelDoUso({ ...uso, operacoes: 0 })}`} max={100} value={pctGasto} aria-label="Gasto com IA" /><small>{resumoGasto}</small></p>
-          {nivel === 'esgotado' && <p className="erro">Limite atingido: novas operações com IA ficam bloqueadas até o uso antigo sair da janela.</p>}
+          <p className="uso-linha"><span>Cota da semana</span><progress className={`barra uso ${nivel}`} max={100} value={pct} aria-label="Cota da semana" /><small>{pct}% usada · {uso.creditosUsados} de {uso.creditosLimite} créditos</small></p>
+          <p className="sub dica">Renova {renova}.</p>
+          {nivel === 'atencao' && <p className="aviso-uso">Sua cota está acabando. Ela renova {renova}.</p>}
+          {nivel === 'esgotado' && <p className="erro">Cota da semana esgotada: novas operações com IA ficam bloqueadas até {renova}.</p>}
         </div>
       )}
     </div>

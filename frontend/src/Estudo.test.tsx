@@ -20,7 +20,7 @@ function servidor(rotas: Record<string, Rota | [number, unknown?]>) {
 }
 
 const geral: [number, unknown] = [200, [{ id: 'g', nome: 'Geral', padrao: true }, { id: 'f', nome: 'Física', padrao: false }]]
-const usoPadrao = { operacoes: 4, limiteOperacoes: 30, janelaOperacoesMinutos: 60, gastoUsd: 0.5, limiteGastoUsd: 10, janelaGastoDias: 30 }
+const usoPadrao = { creditosUsados: 39, creditosLimite: 300, percentual: 13, renovaEm: '2026-10-19T03:00:00Z', operacoes: 4, limiteOperacoes: 30, janelaOperacoesMinutos: 60 }
 const base = { 'GET /uso': [200, usoPadrao] as [number, unknown], 'POST /auth/refresh': [200, { token: 't', nome: 'Ana' }] as [number, unknown], 'GET /assuntos': geral, 'GET /materiais': [200, []] as [number, unknown] }
 const topicosIniciais = [
   { id: 'a', assuntoId: 'g', nome: 'Introdução', ordem: 1, inicio: 1, fim: 4, previa: 'x', temConteudo: false },
@@ -58,7 +58,7 @@ test('envia multipart com o assunto, abre o material e a barra sobe até os tóp
   })
   render(<App />)
   fireEvent.change(await screen.findByLabelText('Arquivo'), { target: { files: [arquivo('apostila.pdf')] } })
-  fireEvent.change(screen.getAllByLabelText('Assunto (opcional)')[0], { target: { value: 'f' } })
+  fireEvent.change(screen.getAllByLabelText('Pasta (opcional)')[0], { target: { value: 'f' } })
   clicar('Enviar material')
 
   const barra = await screen.findByRole('progressbar', { name: 'Andamento do processamento' })
@@ -113,7 +113,7 @@ test('arquivo repetido oferece abrir o material existente', async () => {
   expect(await screen.findByRole('link', { name: 'Abrir o material já enviado' })).toBeTruthy()
 })
 
-test('tópico livre: nome vazio é recusado e depois é registrado e abre o tópico (UC03)', async () => {
+test('tópico livre: nome vazio é recusado e depois é registrado e abre o tópico', async () => {
   irPara('/novo-estudo')
   const chamadas = servidor({ ...base, 'POST /topicos': [201, { id: '22222222-2222-2222-2222-222222222222', nome: 'MRU', ordem: 1 }] })
   render(<App />)
@@ -124,7 +124,7 @@ test('tópico livre: nome vazio é recusado e depois é registrado e abre o tóp
   fireEvent.change(screen.getByLabelText('Tópico'), { target: { value: ' MRU ' } })
   clicar('Registrar tópico')
   await waitFor(() => expect(window.location.pathname).toBe('/topicos/22222222-2222-2222-2222-222222222222')) // o próximo passo (gerar resumo e questões) é no tópico
-  expect(chamadas.find((c) => c.chave === 'POST /topicos')!.corpo).toEqual({ nome: 'MRU', assuntoId: null })
+  expect(chamadas.find((c) => c.chave === 'POST /topicos')!.corpo).toEqual({ nome: 'MRU', assuntoId: null, orientacao: null })
 })
 
 function telaDeRevisao(put?: Rota, topicos: unknown = topicosIniciais) {
@@ -375,12 +375,12 @@ test('IA: tópico com conteúdo vindo no rascunho continua congelado', async () 
 
 const barraDeUso = () => screen.getByRole('progressbar', { name: 'Uso de IA' }) as HTMLProgressElement
 
-test('barra de uso de IA aparece no cabeçalho de todas as telas internas, mostra o pior limite e abre os detalhes', async () => {
+test('barra de uso de IA aparece no cabeçalho de todas as telas internas, mostra a porcentagem da cota semanal e abre os detalhes', async () => {
   for (const caminho of ['/', '/perfil', '/novo-estudo', `/materiais/${ID}`]) {
     irPara(caminho)
     servidor({ ...base, 'GET /perfil': [200, { nome: 'Ana', email: 'a@x.com' }], 'GET /perfil/sessoes': [200, []], [`GET /materiais/${ID}`]: material('pronto'), [`GET /materiais/${ID}/topicos`]: [200, topicosIniciais] })
     const { unmount } = render(<App />)
-    await waitFor(() => expect(barraDeUso().value).toBe(13), { timeout: 3000 }) // 4 de 30 operações = 13% (gasto: 5%): vale o pior
+    await waitFor(() => expect(barraDeUso().value).toBe(13), { timeout: 3000 }) // 39 de 300 créditos = 13% da cota da semana
     unmount()
   }
   irPara('/')
@@ -388,26 +388,29 @@ test('barra de uso de IA aparece no cabeçalho de todas as telas internas, mostr
   render(<App />)
   await waitFor(() => expect(barraDeUso().value).toBe(13))
   expect(barraDeUso().className).toContain('ok')
-  expect(screen.queryByText(/4 de 30 operações/)).toBeNull() // sem texto até o usuário abrir
+  expect(screen.queryByText(/39 de 300 créditos/)).toBeNull() // sem detalhes até o usuário abrir
   fireEvent.click(screen.getByRole('button', { name: /Uso de IA/ }))
-  expect(screen.getByText('4 de 30 operações na última hora')).toBeTruthy()
-  expect(screen.getByText(/US\$\s0,50 de US\$\s10,00 em 30 dias/)).toBeTruthy()
+  expect(screen.getByText('13% usada · 39 de 300 créditos')).toBeTruthy()
+  expect(screen.getAllByText(/Renova .*19\/10/).length).toBeGreaterThan(0)   // quando a cota volta
+  expect(document.body.textContent).not.toMatch(/US\$|dólar/)               // nada de dinheiro na tela
   fireEvent.keyDown(document, { key: 'Escape' })
-  expect(screen.queryByText('4 de 30 operações na última hora')).toBeNull()
+  expect(screen.queryByText('13% usada · 39 de 300 créditos')).toBeNull()
 })
 
 test('barra de uso muda de cor perto do limite e avisa quando o limite é atingido', async () => {
-  servidor({ ...base, 'GET /uso': [200, { ...usoPadrao, operacoes: 25 }] })
+  servidor({ ...base, 'GET /uso': [200, { ...usoPadrao, percentual: 83, creditosUsados: 249 }] })
   const a = render(<App />)
   await waitFor(() => expect(barraDeUso().value).toBe(83))
   expect(barraDeUso().className).toContain('atencao')
+  fireEvent.click(screen.getByRole('button', { name: /Uso de IA/ }))
+  expect(screen.getByText(/Sua cota está acabando/)).toBeTruthy()
   a.unmount()
-  servidor({ ...base, 'GET /uso': [200, { ...usoPadrao, gastoUsd: 10.5 }] })   // o gasto estourou: 100% mesmo com poucas operações
+  servidor({ ...base, 'GET /uso': [200, { ...usoPadrao, percentual: 100, creditosUsados: 300 }] })   // cota esgotada
   render(<App />)
   await waitFor(() => expect(barraDeUso().value).toBe(100))
   expect(barraDeUso().className).toContain('esgotado')
   fireEvent.click(screen.getByRole('button', { name: /Uso de IA/ }))
-  expect(screen.getByText(/Limite atingido/)).toBeTruthy()
+  expect(screen.getByText(/Cota da semana esgotada/)).toBeTruthy()
 })
 
 test('barra de uso não aparece nas telas de entrada nem quando o uso não carrega', async () => {
@@ -422,14 +425,14 @@ test('barra de uso não aparece nas telas de entrada nem quando o uso não carre
   irPara('/')
   servidor({ ...base, 'GET /uso': [500, { mensagem: 'x' }] })
   render(<App />)
-  expect(await screen.findByText(/ainda não tem nenhum estudo/)).toBeTruthy()
+  expect(await screen.findByText(/Comece pelo seu primeiro estudo/)).toBeTruthy()
   expect(screen.queryByRole('progressbar', { name: 'Uso de IA' })).toBeNull()
 })
 
 test('a barra de uso é atualizada quando uma operação com IA acontece', async () => {
   irPara('/novo-estudo')
   let n = 0
-  servidor({ ...base, 'GET /uso': () => { n++; return [200, { ...usoPadrao, operacoes: n >= 2 ? 6 : 4 }] }, 'POST /materiais': [429, { mensagem: 'limite', codigo: 'limite_operacoes', esperaSegundos: 60 }] })
+  servidor({ ...base, 'GET /uso': () => { n++; return [200, { ...usoPadrao, percentual: n >= 2 ? 20 : 13 }] }, 'POST /materiais': [429, { mensagem: 'limite', codigo: 'limite_operacoes', esperaSegundos: 60 }] })
   render(<App />)
   await waitFor(() => expect(barraDeUso().value).toBe(13))
   fireEvent.change(await screen.findByLabelText('Arquivo'), { target: { files: [arquivo('a.pdf')] } })
@@ -483,4 +486,53 @@ test('sem sessão, abrir um material leva ao login', async () => {
   servidor({})
   render(<App />)
   expect(await screen.findByRole('heading', { name: 'Entrar' })).toBeTruthy()
+})
+
+test('revisão: o campo do último trecho aceita digitar com calma (apagar, valor incompleto ou fora do limite) e só aplica valores válidos', async () => {
+  telaDeRevisao()
+  render(<App />)
+  const campo = (await screen.findByLabelText('Último trecho do tópico 1')) as HTMLInputElement
+  fireEvent.focus(campo)
+  fireEvent.change(campo, { target: { value: '' } })
+  expect(campo.value).toBe('')                        // apagou tudo: continua vazio, não volta sozinho
+  fireEvent.change(campo, { target: { value: '10' } })  // fora do limite (o seguinte vai até 10): rascunho com aviso, nada muda
+  expect(campo.value).toBe('10')
+  expect(screen.getByText(/O último trecho deste tópico vai de 1 a 9/)).toBeTruthy()  // o tópico seguinte (5 a 10) precisa manter ao menos um trecho
+  expect(campo.getAttribute('aria-invalid')).toBe('true')
+  expect(screen.getAllByText('Trechos 5 a 10').length).toBeGreaterThan(0)  // nada mudou
+  fireEvent.change(campo, { target: { value: '8' } })    // valor válido: aplica na hora e o aviso some
+  expect(screen.getAllByText('Trechos 9 a 10').length).toBeGreaterThan(0)
+  expect(screen.queryByText(/O último trecho deste tópico vai de/)).toBeNull()
+  fireEvent.change(campo, { target: { value: 'a7x' } })  // letras são ignoradas
+  expect(campo.value).toBe('7')
+  fireEvent.change(campo, { target: { value: '99' } })
+  fireEvent.blur(campo)                                // ao sair, o campo volta ao valor real
+  expect(campo.value).toBe('7')
+})
+
+test('revisão: o campo de dividir deixa apagar e digitar, e só habilita o botão com valor dentro da faixa', async () => {
+  telaDeRevisao()
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Dividir (tópico 1)' }))
+  const campo = screen.getByLabelText('Dividir depois do trecho') as HTMLInputElement
+  const botao = screen.getByRole('button', { name: 'Dividir aqui' }) as HTMLButtonElement
+  fireEvent.change(campo, { target: { value: '' } })
+  expect(campo.value).toBe('')
+  expect(botao.disabled).toBe(true)
+  fireEvent.change(campo, { target: { value: '4' } })   // o tópico vai de 1 a 4: dividir depois do último não faz sentido
+  expect(botao.disabled).toBe(true)
+  fireEvent.change(campo, { target: { value: '3' } })
+  expect(botao.disabled).toBe(false)
+})
+
+test('tópico livre: a orientação digitada é enviada junto do nome', async () => {
+  irPara('/novo-estudo')
+  const chamadas = servidor({ ...base, 'POST /topicos': [201, { id: '22222222-2222-2222-2222-222222222222', nome: 'Guerra', ordem: 1 }] })
+  render(<App />)
+  await screen.findByRole('heading', { name: 'Informar tópico' })
+  fireEvent.change(screen.getByLabelText('Tópico'), { target: { value: 'Segunda Guerra' } })
+  fireEvent.change(screen.getByLabelText('Orientações (opcional)'), { target: { value: ' Espanha e Portugal; estilo FCC ' } })
+  clicar('Registrar tópico')
+  await waitFor(() => expect(chamadas.some((c) => c.chave === 'POST /topicos')).toBe(true))
+  expect(chamadas.find((c) => c.chave === 'POST /topicos')!.corpo).toEqual({ nome: 'Segunda Guerra', assuntoId: null, orientacao: 'Espanha e Portugal; estilo FCC' })
 })

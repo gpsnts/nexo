@@ -1,19 +1,14 @@
 # Plataforma Nexo
 
-Tutor de estudo guiado com IA. O estudante envia um material próprio (PDF, DOCX ou TXT) ou informa um tópico livre; o sistema gera **resumos e questões fiéis ao material**, verifica a fidelidade de cada questão antes de guardá-la, e (nas próximas fatias) agenda revisões por repetição espaçada, monta provas por escopo e mostra a evolução do desempenho.
+Tutor de estudo guiado com IA. O estudante envia um material próprio (PDF, DOCX ou TXT) ou informa um tópico livre; o sistema gera **resumos e questões fiéis ao material**, verifica a fidelidade de cada questão antes de guardá-la, agenda revisões por repetição espaçada, permite escolher quais tópicos revisar e mostra a evolução do desempenho.
 
 Projeto de TCC (ULBRA, Análise e Desenvolvimento de Sistemas)
 
 ## Estado atual
 
-| Fatia | O que é | Situação |
-|---|---|---|
-| F1 | Cadastro, login (JWT + refresh), perfil, sessões, isolamento por conta (RLS) | pronta |
-| F2 | Envio de material, indexação com barra de progresso, divisão em tópicos, tópico livre | pronta |
-| F3 | Resumo, questões, verificação de fidelidade, andamento, cancelamento, limites de uso (UC06 a UC09) | pronta, **só com provedor de IA falso** |
-| F4 a F8 | Estudo e revisão, assuntos e provas, extensões, testes finais, implantação | por fazer/WIP ) |
+Implementados: cadastro e login (JWT com refresh), perfil e sessões, isolamento por conta (RLS), envio e indexação de material com barra de progresso, divisão em tópicos, tópicos livres com orientações opcionais, resumo, questões e verificação de fidelidade, dica e chat com o tutor, revisão por repetição espaçada, painel de desempenho, pastas e cota semanal de uso de IA. Montagem de provas e extensões finais ainda não estão prontas.
 
-O modelo de linguagem real (OpenAI) ainda **não** está integrado: por padrão o serviço usa um provedor falso que devolve conteúdo de demonstração, o suficiente para ver o fluxo inteiro funcionando. Os motivos e o que falta estão nos ADRs 0026, 0029 e 0035.
+O modelo de linguagem real (OpenAI) ainda **não** está integrado: por padrão o serviço usa um provedor falso que devolve conteúdo de demonstração, o suficiente para ver o fluxo inteiro funcionando.
 
 ## Arquitetura
 
@@ -55,26 +50,17 @@ cd e2e && npm ci && npx playwright install chromium firefox && npx playwright te
 
 O CI (`.github/workflows/ci.yml`) roda tudo isso. Os E2E rodam em Chrome, Firefox e perfil de celular; localmente só o Chrome e o celular foram executados até agora.
 
-## Onde está cada coisa
-
-- `docs/projeto.pdf`: documento do projeto aprovado (fonte da verdade); `docs/casos-de-uso.md` e `docs/modelo-de-dados.md` o acompanham; `docs/requisitos.pdf` é a versão anterior dos requisitos e está parcialmente desatualizado.
-- `docs/api-autenticacao.md` e `docs/api-materiais.md`: contratos das rotas (autenticação e conta; materiais, tópicos, resumo, questões).
-- `docs/adr/`: decisões de arquitetura numeradas (índice em `docs/adr/README.md`). Para retomar o trabalho, comece pelo ADR 0035.
-- `PLANO.md`: fatias de trabalho na ordem do cronograma.
-- `CLAUDE.md`: regras e convenções do projeto (também servem de guia para quem for continuar o desenvolvimento).
-- `docs/diagramas/`: diagrama entidade-relacionamento editável (draw.io).
-
 ## Privacidade
 
-Para gerar resumos, questões e divisões em tópicos, o sistema **envia trechos do material do usuário a um provedor de IA externo** (a OpenAI, na configuração prevista). As telas de cadastro, envio, tópico e revisão avisam isso (ADR 0040). Dentro do Nexo o material é isolado por conta e pode ser excluído; o que o provedor receber segue as regras dele, por isso use material que você pode compartilhar e confira os termos de uso de dados da API antes de usar com outras pessoas. O sistema ainda não registra consentimento do usuário.
+Para gerar resumos, questões e divisões em tópicos, o sistema **envia trechos do material do usuário a um provedor de IA externo** (a OpenAI, na configuração prevista). As telas de cadastro, envio, tópico e revisão avisam isso. Dentro do Nexo o material é isolado por conta e pode ser excluído; o que o provedor receber segue as regras dele, por isso use material que você pode compartilhar e confira os termos de uso de dados da API antes de usar com outras pessoas. O sistema ainda não registra consentimento do usuário.
 
 ## Provedores de IA
 
-O serviço de processamento lê `MODELO_EMBEDDING_PROVEDOR` e `MODELO_LINGUAGEM_PROVEDOR` (`falso` por padrão). O embedding real da OpenAI está implementado (`openai`, com `OPENAI_API_KEY`) e o modelo de linguagem real também (ADR 0037), **mas ainda não foi executado contra a API real**: só contra um servidor que imita o formato. Em produção (`NEXO_AMBIENTE=producao`) a aplicação recusa subir com e-mail falso e recusa operações de IA se o serviço informar provedor falso.
+O serviço de processamento lê `MODELO_EMBEDDING_PROVEDOR` e `MODELO_LINGUAGEM_PROVEDOR` (`falso` por padrão). O embedding real da OpenAI está implementado (`openai`, com `OPENAI_API_KEY`) e o modelo de linguagem real também, **mas ainda não foi executado contra a API real**: só contra um servidor que imita o formato. Em produção (`NEXO_AMBIENTE=producao`) a aplicação recusa subir com e-mail falso e recusa operações de IA se o serviço informar provedor falso.
 
 ### Usar o Gemini (nível gratuito, para desenvolvimento)
 
-Alternativa sem custo enquanto o projeto não está em produção (ADR 0041). **Use só material seu**: no nível gratuito o Google pode usar o conteúdo enviado para melhorar seus produtos.
+Alternativa sem custo enquanto o projeto não está em produção. **Use só material seu**: no nível gratuito o Google pode usar o conteúdo enviado para melhorar seus produtos.
 
 1. Crie a chave em **https://aistudio.google.com/apikey** (conta Google). No mesmo site, em AI Studio, confira os limites do nível gratuito e os modelos liberados para você (a documentação do Google não publica os números).
 2. No `.env`:
@@ -91,13 +77,13 @@ Alternativa sem custo enquanto o projeto não está em produção (ADR 0041). **
    Os dois provedores são independentes: dá para usar o Gemini num e a OpenAI no outro.
 3. Trocar o provedor do embedding exige reindexar: `docker compose down -v && docker compose up -d --build` e envie os materiais de novo.
 4. Teste de fumaça: `cd servico-processamento && GEMINI_API_KEY=... MODELO_LINGUAGEM_NOME=... .venv/bin/pytest -m real -k gemini -q`.
-5. Na F6 (produção) volte à OpenAI trocando `gemini` por `openai`, a chave e os preços reais.
+5. Em produção volte à OpenAI trocando `gemini` por `openai`, a chave e os preços reais.
 
 Ainda não foi executado contra a API real do Google, só contra um servidor que imita o formato documentado.
 
 ### Escolher o modelo de embedding
 
-O padrão é o `text-embedding-3-small`. Para usar o `text-embedding-3-large`, no `.env`: `MODELO_EMBEDDING_PROVEDOR=openai`, `MODELO_EMBEDDING_NOME=text-embedding-3-large` e `PRECO_EMBEDDING_USD_POR_MILHAO=<valor da página de preços>` (sem o preço o modelo é recusado). A dimensão continua 1536 (a coluna do banco): a API reduz o vetor do `large` com o parâmetro `dimensions`. Trocar de modelo exige reindexar tudo; em desenvolvimento, `docker compose down -v` e reenvie os materiais (ADR 0038).
+O padrão é o `text-embedding-3-small`. Para usar o `text-embedding-3-large`, no `.env`: `MODELO_EMBEDDING_PROVEDOR=openai`, `MODELO_EMBEDDING_NOME=text-embedding-3-large` e `PRECO_EMBEDDING_USD_POR_MILHAO=<valor da página de preços>` (sem o preço o modelo é recusado). A dimensão continua 1536 (a coluna do banco): a API reduz o vetor do `large` com o parâmetro `dimensions`. Trocar de modelo exige reindexar tudo; em desenvolvimento, `docker compose down -v` e reenvie os materiais.
 
 ### Testar o modelo de linguagem real (conta gratuita serve para o "Reorganizar com IA")
 

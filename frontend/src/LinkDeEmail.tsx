@@ -7,7 +7,11 @@ import TemaToggle from './TemaToggle'
 import { useTitulo } from './titulo'
 import { erroSenhaNova, focarPrimeiroInvalido } from './validacao'
 
-/** Telas abertas pelos links enviados por e-mail: /redefinir-senha?token=… e /confirmar-email?token=… */
+/**
+ * Telas abertas pelos links enviados por e-mail: /redefinir-senha?token=… , /confirmar-email?token=… e /verificar-email?token=…
+ * @param props tipo: finalidade do link; token: token da URL (nulo se a página foi recarregada); aoConcluir: vai para o login; aoPedirNovo: vai para pedir novo link.
+ * @returns a tela.
+ */
 export default function LinkDeEmail({ tipo, token, aoConcluir, aoPedirNovo }: {
   tipo: 'redefinir' | 'confirmar' | 'verificar'; token: string | null; aoConcluir: () => void; aoPedirNovo: () => void
 }) {
@@ -21,6 +25,11 @@ export default function LinkDeEmail({ tipo, token, aoConcluir, aoPedirNovo }: {
 
   useTitulo(tipo === 'redefinir' ? 'Nova senha' : tipo === 'verificar' ? 'Ativar conta' : 'Confirmar e-mail')
 
+  /**
+   * Envia o token (e a nova senha, na redefinição) ao backend.
+   * @param e evento de envio do formulário.
+   * @returns promessa resolvida quando a chamada termina.
+   */
   async function enviar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (tipo === 'redefinir') {

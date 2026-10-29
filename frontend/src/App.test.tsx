@@ -45,7 +45,7 @@ test('com indicador de sessão e refresh recusado, mostra o login e limpa o indi
   expect(localStorage.getItem('nexo-sessao')).toBeNull()
 })
 
-test('login com erro mostra a mensagem do servidor (UC01 A1)', async () => {
+test('login com erro mostra a mensagem do servidor', async () => {
   servidor({ 'POST /auth/refresh': semSessao, 'POST /auth/login': [401, { mensagem: 'E-mail ou senha incorretos, ou acesso temporariamente bloqueado.' }] })
   render(<App />)
   await screen.findByRole('heading', { name: 'Entrar' })
@@ -53,7 +53,7 @@ test('login com erro mostra a mensagem do servidor (UC01 A1)', async () => {
   expect((await screen.findByRole('alert')).textContent).toContain('temporariamente bloqueado')
 })
 
-test('cadastro não inicia sessão: pede para confirmar o e-mail e permite reenviar (UC01 A2)', async () => {
+test('cadastro não inicia sessão: pede para confirmar o e-mail e permite reenviar', async () => {
   const chamadas = servidor({
     'POST /auth/cadastro': [201, { mensagem: 'Conta criada.' }],
     'POST /auth/reenviar-verificacao': [202],
@@ -91,7 +91,7 @@ test('link de verificação ativa a conta', async () => {
   expect(chamadas.find((c) => c.chave === 'POST /auth/verificar-email')!.corpo).toEqual({ token: 'xyz' })
 })
 
-test('e-mail repetido mostra a mensagem de conflito (UC01 A3)', async () => {
+test('e-mail repetido mostra a mensagem de conflito', async () => {
   servidor({ 'POST /auth/refresh': semSessao, 'POST /auth/cadastro': [409, { mensagem: 'Este e-mail já está cadastrado. Entre com a sua conta.' }] })
   render(<App />)
   await screen.findByRole('heading', { name: 'Entrar' })
@@ -484,7 +484,7 @@ test('link inválido ou vencido oferece pedir outro', async () => {
   expect(await screen.findByRole('heading', { name: 'Recuperar senha' })).toBeTruthy()
 })
 
-test('e-mail já cadastrado oferece entrar ou recuperar a senha (UC01 A3)', async () => {
+test('e-mail já cadastrado oferece entrar ou recuperar a senha', async () => {
   servidor({ 'POST /auth/cadastro': [409, { mensagem: 'Este e-mail já está cadastrado. Entre com a sua conta.', codigo: 'email_em_uso' }] })
   render(<App />)
   clicar('Criar conta')
@@ -511,7 +511,7 @@ test('o Início mostra carregando e depois o estado vazio de materiais; há link
   render(<App />)
   expect(await screen.findByText('Olá, Ana')).toBeTruthy()
   expect(await screen.findByText('Geral')).toBeTruthy()
-  expect(await screen.findByText(/ainda não tem nenhum estudo/)).toBeTruthy()
+  expect(await screen.findByText(/Comece pelo seu primeiro estudo/)).toBeTruthy()
   fireEvent.click(screen.getByText('Pular para o conteúdo'))
   expect(document.activeElement?.id).toBe('conteudo')
 })

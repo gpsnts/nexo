@@ -4,20 +4,30 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, ErroApi, type Sessao } from './api'
 import Campo from './Campo'
 import Marca from './Marca'
+import { IconeCheck, Rede } from './Icones'
 import TemaToggle from './TemaToggle'
 import { useTitulo } from './titulo'
 import { erroEmail, erroNome, erroObrigatorio, erroSenhaNova, focarPrimeiroInvalido, temErro, type Erros } from './validacao'
 
+/** Modo da tela de acesso: entrar, criar conta ou recuperar senha. */
 export type Modo = 'entrar' | 'criar' | 'esqueci'
 
 const titulos: Record<Modo, string> = { entrar: 'Entrar', criar: 'Criar conta', esqueci: 'Recuperar senha' }
 
-/** O modo vem da rota (/entrar, /criar-conta, /recuperar-senha): o botão Voltar do navegador troca de modo e cada tela tem link próprio. */
+/**
+ * Tela de acesso. O modo vem da rota (/entrar, /criar-conta, /recuperar-senha): o botão Voltar do navegador troca de modo e cada tela tem link próprio.
+ * @param props modo: tela corrente; emailInicial: e-mail já digitado; aoMudarEmail: guarda o e-mail ao trocar de modo; aoMudarModo: troca de tela; aoEntrar: recebe a sessão após o login; aviso: mensagem inicial.
+ * @returns a tela.
+ */
 export default function Entrar({ modo, emailInicial, aoMudarEmail, aoMudarModo, aoEntrar, aviso: avisoInicial = '' }: {
   modo: Modo; emailInicial: string; aoMudarEmail: (e: string) => void; aoMudarModo: (m: Modo) => void; aoEntrar: (s: Sessao) => void; aviso?: string
 }) {
   const [nome, setNome] = useState('')
   const [email, setEmailLocal] = useState(emailInicial)
+  /**
+   * Atualiza o e-mail digitado aqui e no App.
+   * @param v e-mail digitado.
+   */
   const setEmail = (v: string) => { setEmailLocal(v); aoMudarEmail(v) } // o e-mail digitado acompanha a troca de modo
   const [senha, setSenha] = useState('')
   const [erros, setErros] = useState<Erros>({})
@@ -41,8 +51,18 @@ export default function Entrar({ modo, emailInicial, aoMudarEmail, aoMudarModo, 
   const mudar = aoMudarModo // a senha digitada não acompanha: o App remonta este componente a cada modo
 
   // Digitar limpa o erro daquele campo; o resto continua até o próximo envio.
+  /**
+   * Cria o tratador de um campo: digitar limpa o erro daquele campo; o resto continua até o próximo envio.
+   * @param nomeDoCampo chave do erro do campo.
+   * @param definir grava o valor digitado.
+   * @returns função que recebe o valor digitado.
+   */
   const campo = (nomeDoCampo: string, definir: (v: string) => void) => (v: string) => { definir(v); setErros((e) => ({ ...e, [nomeDoCampo]: '' })) }
 
+  /**
+   * Reenvia o link de confirmação do e-mail.
+   * @returns promessa resolvida quando termina.
+   */
   async function reenviar() {
     setErro(''); setAviso('')
     try {
@@ -53,6 +73,11 @@ export default function Entrar({ modo, emailInicial, aoMudarEmail, aoMudarModo, 
     }
   }
 
+  /**
+   * Valida o formulário e chama a rota do modo corrente (login, cadastro ou recuperação).
+   * @param e evento de envio do formulário.
+   * @returns promessa resolvida quando termina.
+   */
   async function enviar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     const formulario = e.currentTarget
@@ -72,7 +97,7 @@ export default function Entrar({ modo, emailInicial, aoMudarEmail, aoMudarModo, 
         setAviso('Se este e-mail tiver conta, enviamos um link para criar uma nova senha. Ele vale por 30 minutos.')
       } else if (modo === 'criar') {
         await api('/auth/cadastro', { corpo: { nome: nome.trim(), email: mail, senha } })
-        setSenha(''); setAguardando(true) // a conta só entra depois de confirmar o e-mail (ADR 0014)
+        setSenha(''); setAguardando(true) // a conta só entra depois de confirmar o e-mail
       } else {
         aoEntrar(await api<Sessao>('/auth/login', { corpo: { email: mail, senha } }))
       }
@@ -88,6 +113,16 @@ export default function Entrar({ modo, emailInicial, aoMudarEmail, aoMudarModo, 
 
   return (
     <div className="centro">
+      <aside className="painel-marca" aria-label="Sobre o Nexo">
+        <Marca />
+        <p className="lema">Estude com o que é seu.</p>
+        <ul>
+          <li><IconeCheck />Resumos e questões fiéis ao seu próprio material</li>
+          <li><IconeCheck />Revisões que chegam na hora certa, por repetição espaçada</li>
+          <li><IconeCheck />Sua evolução semana a semana, por assunto</li>
+        </ul>
+        <Rede />
+      </aside>
       <main className="cartao">
         <div className="topo"><Marca /><TemaToggle /></div>
         {aguardando ? (

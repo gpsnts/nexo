@@ -29,7 +29,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** ADR 0017: erros de formato, limites de tamanho, política de senha, concorrência e auditoria. */
+/** Erros de formato, limites de tamanho, política de senha, concorrência e auditoria. */
 class RobustezTest : BaseIntegracao() {
     @Autowired lateinit var props: NexoProperties
 

@@ -20,14 +20,14 @@ function servidor(rotas: Record<string, Rota | [number, unknown?]>) {
   return chamadas
 }
 
-const uso = { operacoes: 4, limiteOperacoes: 30, janelaOperacoesMinutos: 60, gastoUsd: 0.5, limiteGastoUsd: 10, janelaGastoDias: 30 }
+const uso = { creditosUsados: 39, creditosLimite: 300, percentual: 13, renovaEm: '2026-10-19T03:00:00Z', operacoes: 4, limiteOperacoes: 30, janelaOperacoesMinutos: 60 }
 const detalhe = (extra = {}) => ({
   id: T, assuntoId: 'g', nome: 'Células', livre: false, fontes: [{ materialId: 'm', nomeArquivo: 'bio.pdf', inicio: 1, fim: 5 }],
-  resumo: null, totalQuestoes: 0, maximoQuestoes: 50, maximoResumos: 10, geracaoAberta: null, ultimaGeracao: null, ...extra,
+  resumo: null, totalQuestoes: 0, maximoQuestoes: 50, maximoResumos: 10, geracaoAberta: null, ultimaGeracao: null, orientacao: null, ...extra,
 })
 const geracao = (extra = {}) => ({ id: REG, operacao: 'questoes', status: 'em_andamento', progresso: 40, aprovadas: 0, rejeitadas: 0, repetidas: 0, gravadas: 0, taxaRejeicao: null, mensagem: null, verificacaoId: null, motivo: null, ...extra })
-const base = { 'GET /uso': [200, uso] as [number, unknown], 'POST /auth/refresh': [200, { token: 't', nome: 'Ana' }] as [number, unknown] }
-const questao = { id: 'q1', enunciado: 'O que produz ATP?', alternativas: ['Núcleo', 'Mitocôndria', 'Ribossomo', 'Lisossomo'], respostaCorreta: 1, criadoEm: '2026-10-15T10:00:00Z', apoio: [{ nomeArquivo: 'bio.pdf', ordem: 2, numeroPagina: 3 }, { nomeArquivo: 'bio.pdf', ordem: 3, numeroPagina: 4 }] }
+const base = { 'GET /uso': [200, uso] as [number, unknown], [`GET /topicos/${T}/chat`]: [200, []] as [number, unknown], 'POST /auth/refresh': [200, { token: 't', nome: 'Ana' }] as [number, unknown] }
+const questao = { id: 'q1', enunciado: 'O que produz ATP?', alternativas: ['Núcleo', 'Mitocôndria', 'Ribossomo', 'Lisossomo'], dificuldade: 'media', respostaCorreta: null, respondida: false, ultimaCorreta: null, proximaRevisao: null, criadoEm: '2026-10-15T10:00:00Z', apoio: [{ nomeArquivo: 'bio.pdf', ordem: 2, numeroPagina: 3 }, { nomeArquivo: 'bio.pdf', ordem: 3, numeroPagina: 4 }] }
 
 beforeEach(() => { config.intervaloAndamentoMs = 5; config.avisoParadaMs = 180_000; config.tentativasAndamento = 3; config.avisoDemoraMs = 5000; localStorage.setItem('nexo-sessao', '1'); window.history.replaceState(null, '', `/topicos/${T}`) })
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/'); localStorage.clear() })
@@ -55,14 +55,52 @@ test('gera questões com barra de andamento, mostra o resultado e lista as quest
   fireEvent.change(screen.getByLabelText('Quantas questões gerar'), { target: { value: '3' } })
   clicar('Gerar questões')
   expect(await screen.findByRole('progressbar', { name: 'Andamento da geração' })).toBeTruthy()
-  expect(chamadas.find((c) => c.chave === `POST /topicos/${T}/questoes`)!.corpo).toEqual({ quantidade: 3 })
+  expect(chamadas.find((c) => c.chave === `POST /topicos/${T}/questoes`)!.corpo).toEqual({ quantidade: 3, dificuldade: 'media' })
   const resultado = await screen.findByText(/1 questão gravada de 3 pedidas/)
   expect(resultado.closest('[role=status]')!.textContent).toContain('taxa de rejeição 33%')
   expect(resultado.closest('[role=status]')!.textContent).toContain('1 repetida descartada')
   expect(await screen.findByText('O que produz ATP?')).toBeTruthy()
-  expect(screen.getByText(/B\) Mitocôndria/).closest('li')!.textContent).toContain('(correta)')
+  expect(screen.getByText(/B\) Mitocôndria/).closest('li')!.textContent).not.toContain('(correta)')
   expect(screen.getByText('Fonte: bio.pdf, págs. 3 e 4')).toBeTruthy()
-  expect(screen.getByText(/Modo revisão/)).toBeTruthy()
+  expect(screen.getByText(/gabarito de cada questão aparece depois/)).toBeTruthy()
+})
+
+test('responde uma questão: gabarito só depois de confirmar, e o resultado volta ao tópico', async () => {
+  let respondida = false
+  const chamadas = servidor({
+    ...base,
+    [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })],
+    [`GET /topicos/${T}/questoes`]: () => [200, [respondida ? { ...questao, respostaCorreta: 1, respondida: true, ultimaCorreta: false, proximaRevisao: '2099-03-10' } : questao]],
+    'POST /questoes/q1/respostas': () => { respondida = true; return [200, { correta: false, respostaCorreta: 1, proximaRevisao: '2099-03-10' }] },
+  })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Começar questionário' }))
+  expect(await screen.findByRole('heading', { name: /O que produz ATP\?/ })).toBeTruthy()
+  expect(screen.queryByText(/\(correta\)/)).toBeNull()
+  expect(screen.getByRole('button', { name: 'Confirmar resposta' }).hasAttribute('disabled')).toBe(true)
+  fireEvent.click(screen.getByRole('button', { name: /Núcleo/ }))  // seleciona; só grava ao confirmar
+  expect(chamadas.some((c) => c.chave === 'POST /questoes/q1/respostas')).toBe(false)
+  clicar('Confirmar resposta')
+  expect(await screen.findByText(/Não foi dessa vez\. A resposta certa é a alternativa B/)).toBeTruthy()
+  expect(chamadas.find((c) => c.chave === 'POST /questoes/q1/respostas')!.corpo).toEqual({ alternativa: 0 })
+  expect(screen.getByText(/volta para revisão em 10\/03\/2099/)).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Núcleo.*sua resposta, incorreta/ })).toBeTruthy()
+  expect(screen.getByRole('button', { name: /Mitocôndria.*correta/ })).toBeTruthy()
+  clicar('Ver resultado')
+  expect(await screen.findByText(/Você acertou 0 de 1\./)).toBeTruthy()
+  clicar('Voltar ao tópico')
+  expect(await screen.findByText(/Última resposta: incorreta · próxima revisão em 10\/03\/2099/)).toBeTruthy()
+  expect(screen.getByText(/B\) Mitocôndria/).closest('li')!.textContent).toContain('(correta)')
+})
+
+test('erro ao registrar a resposta mantém a questão e deixa tentar de novo', async () => {
+  servidor({ ...base, [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })], [`GET /topicos/${T}/questoes`]: [200, [questao]], 'POST /questoes/q1/respostas': [500, { mensagem: 'Falha' }] })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Começar questionário' }))
+  fireEvent.click(await screen.findByRole('button', { name: /Mitocôndria/ }))
+  clicar('Confirmar resposta')
+  expect((await screen.findByRole('alert')).textContent).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Confirmar resposta' }).hasAttribute('disabled')).toBe(false) // a escolha continua e dá para tentar de novo
 })
 
 test('gera o resumo e mostra o texto', async () => {
@@ -176,7 +214,7 @@ test('tópico livre: aparece na lista única de estudos e "Voltar ao início" vo
   window.history.replaceState(null, '', '/')
   render(<App />)
   expect(await screen.findByRole('heading', { name: 'Seus estudos' })).toBeTruthy()
-  expect(await screen.findByText(/com resumo · 2 questões/)).toBeTruthy()
+  expect(await screen.findByText('com resumo')).toBeTruthy(); expect(screen.getByText('2 questões')).toBeTruthy()
   expect(screen.getByText('Tópico livre')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Movimento Retilíneo' }))
   await waitFor(() => expect(window.location.pathname).toBe(`/topicos/${T}`))
@@ -192,11 +230,10 @@ test('o campo de quantidade nunca passa do que ainda cabe no tópico', async () 
   expect((screen.getByLabelText('Quantas questões gerar') as HTMLInputElement).value).toBe('3')
 })
 
-test('mostra o custo da ação em operações e a explicação de que levar tempo não prende o usuário', async () => {
+test('avisa que a ação usa créditos da cota semanal e explica que levar tempo não prende o usuário', async () => {
   servidor({ ...base, [`GET /topicos/${T}`]: [200, detalhe({ geracaoAberta: REG })], [`GET /topicos/${T}/questoes`]: [200, []], [`GET /geracoes/${REG}`]: [200, geracao({ progresso: 10 })] })
   render(<App />)
-  expect(await screen.findByText(/Usa 1 operação do seu limite/)).toBeTruthy()
-  expect(screen.getByText(/Usa 2 operações do seu limite/)).toBeTruthy()
+  expect((await screen.findAllByText(/Usa créditos da sua cota semanal de IA/)).length).toBe(2)   // resumo e questões
   expect(await screen.findByText(/Você pode sair desta página/)).toBeTruthy()
 })
 
@@ -273,13 +310,119 @@ test('erro ao cancelar mostra a mensagem e mantém o andamento', async () => {
   expect(screen.getByRole('progressbar', { name: 'Andamento da geração' })).toBeTruthy()
 })
 
-test('assuntos na tela inicial aparecem como etiquetas, com o padrão indicado', async () => {
+const pastas = [{ id: 'g', nome: 'Geral', padrao: true }, { id: 'f', nome: 'Física', padrao: false }, { id: 'h', nome: 'História', padrao: false }]
+const inicio = (extra: Record<string, [number, unknown?] | ((c: any) => [number, unknown?])> = {}) => {
   window.history.replaceState(null, '', '/')
-  servidor({ ...base, 'GET /assuntos': [200, [{ id: 'g', nome: 'Geral', padrao: true }, { id: 'f', nome: 'Física', padrao: false }]], 'GET /materiais': [200, []], 'GET /topicos/livres': [200, []] })
+  return servidor({
+    ...base, 'GET /assuntos': [200, pastas],
+    'GET /materiais': [200, [{ id: 'm1', nomeArquivo: 'ww2.pdf', titulo: 'Segunda Guerra', status: 'pronto', motivoFalha: null, paginas: 3, criadoEm: '2026-10-16T10:00:00Z', assuntoId: 'h' },
+      { id: 'm2', nomeArquivo: 'termo.pdf', titulo: null, status: 'pronto', motivoFalha: null, paginas: 3, criadoEm: '2026-10-15T10:00:00Z', assuntoId: 'f' }]],
+    'GET /topicos/livres': [200, [{ id: 't1', nome: 'Óptica', criadoEm: '2026-10-14T10:00:00Z', totalQuestoes: 0, temResumo: false, assuntoId: 'g' }]], ...extra,
+  })
+}
+
+test('pastas na tela inicial: filtro por pasta, nome do estudo no lugar do arquivo e "Geral" explicada', async () => {
+  inicio()
   render(<App />)
-  const lista = await screen.findByRole('list', { name: 'Assuntos' })
-  expect(lista.textContent).toContain('Geral · padrão'); expect(lista.textContent).toContain('Física')
-  expect(screen.getByText(/O assunto padrão guarda os estudos/)).toBeTruthy() // explicação visível, não só ao passar o mouse
+  const filtros = await screen.findByRole('list', { name: 'Filtrar por pasta' })
+  expect(filtros.textContent).toContain('Todos'); expect(filtros.textContent).toContain('Física'); expect(filtros.textContent).toContain('História')
+  expect(screen.getByText(/"Geral" guarda os estudos que não estão em nenhuma pasta/)).toBeTruthy()
+  expect(await screen.findByRole('button', { name: 'Segunda Guerra' })).toBeTruthy()   // o nome do estudo, não o do arquivo
+  expect(screen.getByText(/ww2\.pdf/)).toBeTruthy()                                      // o arquivo continua visível
+  expect(screen.getByRole('button', { name: 'termo.pdf' })).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'História' }))
+  expect(screen.getByRole('button', { name: 'Segunda Guerra' })).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'termo.pdf' })).toBeNull(); expect(screen.queryByRole('button', { name: 'Óptica' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Geral' }))
+  expect(screen.getByRole('button', { name: 'Óptica' })).toBeTruthy(); expect(screen.queryByRole('button', { name: 'Segunda Guerra' })).toBeNull()
+})
+
+test('pastas: criar, renomear e excluir com confirmação', async () => {
+  const chamadas = inicio({
+    'POST /assuntos': [201, { id: 'n', nome: 'Química', padrao: false }],
+    'PUT /assuntos/f': [200, { id: 'f', nome: 'Física Moderna', padrao: false }],
+    'DELETE /assuntos/f': [204],
+  })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: '+ Nova pasta' }))
+  fireEvent.change(screen.getByLabelText('Nome da nova pasta'), { target: { value: ' Química ' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Criar pasta' }))
+  await waitFor(() => expect(chamadas.find((c) => c.chave === 'POST /assuntos')!.corpo).toEqual({ nome: 'Química' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Física' }))
+  expect(screen.queryByRole('button', { name: /Renomear a pasta Geral/ })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Renomear a pasta Física' }))
+  fireEvent.change(screen.getByLabelText('Novo nome da pasta'), { target: { value: 'Física Moderna' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Salvar nome' }))
+  await waitFor(() => expect(chamadas.find((c) => c.chave === 'PUT /assuntos/f')!.corpo).toEqual({ nome: 'Física Moderna' }))
+  fireEvent.click(await screen.findByRole('button', { name: /Excluir a pasta/ }))
+  expect(screen.getByText(/voltam para "Geral"/)).toBeTruthy()
+  expect(chamadas.some((c) => c.chave === 'DELETE /assuntos/f')).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Excluir pasta' }))
+  await waitFor(() => expect(chamadas.some((c) => c.chave === 'DELETE /assuntos/f')).toBe(true))
+})
+
+test('pasta: erro do servidor aparece e nome vazio é recusado antes de enviar', async () => {
+  const chamadas = inicio({ 'POST /assuntos': [409, { mensagem: 'Já existe uma pasta com esse nome. Use a que já existe.', codigo: 'assunto_duplicado' }] })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: '+ Nova pasta' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Criar pasta' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('Informe o nome da pasta')
+  expect(chamadas.some((c) => c.chave === 'POST /assuntos')).toBe(false)
+  fireEvent.change(screen.getByLabelText('Nome da nova pasta'), { target: { value: 'Física' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Criar pasta' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('Já existe uma pasta')
+})
+
+test('tópico livre troca de pasta pela própria página', async () => {
+  const chamadas = servidor({ ...base, 'GET /assuntos': [200, pastas], [`GET /topicos/${T}`]: [200, detalhe({ livre: true, fontes: [], assuntoId: 'g' })], [`GET /topicos/${T}/questoes`]: [200, []], [`PUT /topicos/${T}/assunto`]: [200, { id: 'f', nome: 'Física', padrao: false }] })
+  render(<App />)
+  fireEvent.change(await screen.findByLabelText('Pasta'), { target: { value: 'f' } })
+  await waitFor(() => expect(chamadas.find((c) => c.chave === `PUT /topicos/${T}/assunto`)!.corpo).toEqual({ assuntoId: 'f' }))
+})
+
+const MID = '44444444-4444-4444-4444-444444444444'
+const estudoPronto = (extra = {}) => ({ id: MID, nomeArquivo: 'ww2.pdf', titulo: null, status: 'pronto', motivoFalha: null, paginas: 3, criadoEm: '2026-10-16T10:00:00Z', assuntoId: 'g', ...extra })
+
+test('estudo: renomear à mão, sugerir nome com a IA e voltar ao nome do arquivo', async () => {
+  window.history.replaceState(null, '', `/materiais/${MID}`)
+  let atual: any = estudoPronto()
+  const chamadas = servidor({
+    ...base, 'GET /assuntos': [200, pastas], [`GET /materiais/${MID}`]: () => [200, atual], [`GET /materiais/${MID}/topicos`]: [200, []], [`GET /materiais/${MID}/paginas`]: [200, []],
+    [`POST /materiais/${MID}/sugerir-nome`]: [200, { nome: 'Segunda Guerra Mundial' }],
+    [`PUT /materiais/${MID}`]: (c) => { atual = estudoPronto({ titulo: c.titulo || null }); return [200, atual] },
+  })
+  render(<App />)
+  expect(await screen.findByRole('heading', { name: 'ww2.pdf' })).toBeTruthy()
+  fireEvent.click(await screen.findByRole('button', { name: 'Renomear estudo' }))
+  expect((screen.getByLabelText('Nome do estudo') as HTMLInputElement).value).toBe('ww2.pdf')
+  fireEvent.click(screen.getByRole('button', { name: 'Sugerir nome com IA' }))
+  await waitFor(() => expect((screen.getByLabelText('Nome do estudo') as HTMLInputElement).value).toBe('Segunda Guerra Mundial'))
+  expect(chamadas.some((c) => c.chave === `PUT /materiais/${MID}`)).toBe(false) // a sugestão só vale se o estudante salvar
+  fireEvent.click(screen.getByRole('button', { name: 'Salvar nome' }))
+  expect(await screen.findByRole('heading', { name: 'Segunda Guerra Mundial' })).toBeTruthy()
+  expect(screen.getByText('Arquivo: ww2.pdf')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Renomear estudo' }))
+  fireEvent.change(screen.getByLabelText('Nome do estudo'), { target: { value: '' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Salvar nome' }))
+  expect(await screen.findByRole('heading', { name: 'ww2.pdf' })).toBeTruthy()
+})
+
+test('estudo: falha ao sugerir mostra o erro e mantém o texto; mover de pasta avisa', async () => {
+  window.history.replaceState(null, '', `/materiais/${MID}`)
+  const chamadas = servidor({
+    ...base, 'GET /assuntos': [200, pastas], [`GET /materiais/${MID}`]: [200, estudoPronto()], [`GET /materiais/${MID}/topicos`]: [200, []], [`GET /materiais/${MID}/paginas`]: [200, []],
+    [`POST /materiais/${MID}/sugerir-nome`]: [503, { mensagem: 'O modelo de linguagem não respondeu.', codigo: 'ia_indisponivel' }], [`PUT /materiais/${MID}/assunto`]: [200, pastas[2]],
+  })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Renomear estudo' }))
+  fireEvent.change(screen.getByLabelText('Nome do estudo'), { target: { value: 'Meu nome' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Sugerir nome com IA' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('não respondeu')
+  expect((screen.getByLabelText('Nome do estudo') as HTMLInputElement).value).toBe('Meu nome')
+  fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+  fireEvent.change(await screen.findByLabelText('Pasta'), { target: { value: 'h' } })
+  expect(await screen.findByText('Estudo movido.')).toBeTruthy()
+  expect(chamadas.find((c) => c.chave === `PUT /materiais/${MID}/assunto`)!.corpo).toEqual({ assuntoId: 'h' })
 })
 
 test('falhas passageiras de rede no andamento são absorvidas: o acompanhamento continua sem alerta', async () => {
@@ -375,11 +518,11 @@ test('início: materiais e tópicos livres numa só lista, do mais novo ao mais 
   expect(itens).toHaveLength(2)
   expect(itens[0]).toContain('Livre novo'); expect(itens[0]).toContain('Tópico livre')
   expect(itens[1]).toContain('antigo.pdf'); expect(itens[1]).toContain('Material')
-  expect(screen.queryByText(/ainda não tem nenhum estudo/)).toBeNull()
+  expect(screen.queryByText(/Comece pelo seu primeiro estudo/)).toBeNull()
   unmount(); cleanup()
   servidor({ ...rotas, 'GET /materiais': [200, []], 'GET /topicos/livres': [200, []] })
   render(<App />)
-  expect(await screen.findByText(/ainda não tem nenhum estudo/)).toBeTruthy()
+  expect(await screen.findByText(/Comece pelo seu primeiro estudo/)).toBeTruthy()
 })
 
 test('id inexistente ou de outra conta: mensagem de não encontrado com caminho de volta, sem "Tentar de novo"', async () => {
@@ -441,7 +584,7 @@ test('as listas do início pedem o mesmo limite que a tela usa no aviso de lista
   window.history.replaceState(null, '', '/')
   const chamadas = servidor({ ...base, 'GET /assuntos': [200, []], 'GET /materiais': [200, []], 'GET /topicos/livres': [200, []] })
   render(<App />)
-  await screen.findByText(/ainda não tem nenhum estudo/)
+  await screen.findByText(/Comece pelo seu primeiro estudo/)
   expect(chamadas.find((c) => c.chave === 'GET /materiais')!.url).toContain('limite=100')
   expect(chamadas.find((c) => c.chave === 'GET /topicos/livres')!.url).toContain('limite=100')
 })
@@ -479,7 +622,7 @@ test('pedido que demora para ser aceito avisa que o serviço de IA está lento, 
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const chave = `${init.method ?? 'GET'} ${url.replace('/api', '').split('?')[0]}`
     if (chave === `POST /topicos/${T}/resumo`) { await segura; return { ok: false, status: 503, json: async () => ({ mensagem: 'O modelo de linguagem não respondeu. Tente novamente em instantes.', codigo: 'ia_indisponivel' }) } }
-    const rotas: Record<string, unknown> = { 'GET /uso': uso, 'POST /auth/refresh': { token: 't', nome: 'Ana' }, [`GET /topicos/${T}`]: detalhe(), [`GET /topicos/${T}/questoes`]: [] }
+    const rotas: Record<string, unknown> = { 'GET /uso': uso, 'POST /auth/refresh': { token: 't', nome: 'Ana' }, [`GET /topicos/${T}`]: detalhe(), [`GET /topicos/${T}/questoes`]: [], [`GET /topicos/${T}/chat`]: [] }
     return { ok: chave in rotas, status: chave in rotas ? 200 : 404, json: async () => rotas[chave] }
   }))
   render(<App />)
@@ -550,4 +693,280 @@ test('revisão de tópicos avisa que o início de cada trecho vai ao serviço ex
   })
   render(<App />)
   expect(await screen.findByText(/O início de cada trecho é enviado a um serviço externo de inteligência artificial/)).toBeTruthy()
+})
+
+test('questão respondida com revisão vencida avisa que está pendente', async () => {
+  servidor({ ...base, [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })], [`GET /topicos/${T}/questoes`]: [200, [{ ...questao, respostaCorreta: 1, respondida: true, ultimaCorreta: true, proximaRevisao: '2026-03-10' }]] })
+  render(<App />)
+  expect(await screen.findByText(/revisão pendente desde 10\/03\/2026/)).toBeTruthy()
+})
+
+const dica = { ...questao, respostaCorreta: null }
+
+test('dica: recolhida por padrão, só gera ao clicar, mostra o texto e esconde de novo', async () => {
+  const chamadas = servidor({ ...base, [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })], [`GET /topicos/${T}/questoes`]: [200, [dica]], 'POST /questoes/q1/dica': [200, { dica: 'Pense na usina de energia da célula.' }] })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Começar questionário' }))
+  const botao = await screen.findByRole('button', { name: 'Ver dica' })
+  expect(botao.getAttribute('aria-expanded')).toBe('false')
+  expect(chamadas.some((c) => c.chave === 'POST /questoes/q1/dica')).toBe(false)
+  fireEvent.click(botao)
+  expect(await screen.findByText('Pense na usina de energia da célula.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Esconder dica' }).getAttribute('aria-expanded')).toBe('true')
+  fireEvent.click(screen.getByRole('button', { name: 'Esconder dica' }))
+  expect(screen.queryByText('Pense na usina de energia da célula.')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Ver dica' }))  // reabrir não chama de novo
+  expect(await screen.findByText('Pense na usina de energia da célula.')).toBeTruthy()
+  expect(chamadas.filter((c) => c.chave === 'POST /questoes/q1/dica').length).toBe(1)
+})
+
+test('dica já guardada aparece sem chamar o servidor; falha mostra erro e permite tentar de novo', async () => {
+  let n = 0
+  const chamadas = servidor({ ...base, [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })], [`GET /topicos/${T}/questoes`]: [200, [{ ...dica, dica: 'Dica pronta.' }]] })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Começar questionário' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Ver dica' }))
+  expect(await screen.findByText('Dica pronta.')).toBeTruthy()
+  expect(chamadas.some((c) => c.chave.includes('/dica'))).toBe(false)
+  cleanup(); vi.unstubAllGlobals()
+  servidor({ ...base, [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })], [`GET /topicos/${T}/questoes`]: [200, [dica]], 'POST /questoes/q1/dica': () => (++n === 1 ? [503, { mensagem: 'O modelo de linguagem não respondeu.' }] : [200, { dica: 'Agora foi.' }]) })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Começar questionário' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Ver dica' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('não respondeu')
+  fireEvent.click(screen.getByRole('button', { name: 'Tentar de novo' }))
+  expect(await screen.findByText('Agora foi.')).toBeTruthy()
+})
+
+test('a dica some depois de confirmar a resposta', async () => {
+  servidor({ ...base, [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })], [`GET /topicos/${T}/questoes`]: [200, [dica]], 'POST /questoes/q1/respostas': [200, { correta: true, respostaCorreta: 1, proximaRevisao: '2099-01-01' }] })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Começar questionário' }))
+  fireEvent.click(await screen.findByRole('button', { name: /Mitocôndria/ })); clicar('Confirmar resposta')
+  expect(await screen.findByText('Correto!')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Ver dica' })).toBeNull()
+})
+
+const msg = (id: string, papel: string, conteudo: string) => ({ id, papel, conteudo, criadoEm: '2026-10-16T10:00:00Z' })
+
+test('chat: mostra o histórico salvo, envia a pergunta e acrescenta a resposta', async () => {
+  const chamadas = servidor({
+    ...base, [`GET /topicos/${T}`]: [200, detalhe()], [`GET /topicos/${T}/questoes`]: [200, []],
+    [`GET /topicos/${T}/chat`]: [200, [msg('1', 'usuario', 'O que é célula?'), msg('2', 'assistente', 'A unidade básica da vida.')]],
+    [`POST /topicos/${T}/chat`]: [200, [msg('3', 'usuario', 'E o núcleo?'), msg('4', 'assistente', 'Guarda o DNA.')]],
+  })
+  render(<App />)
+  expect(await screen.findByText('A unidade básica da vida.')).toBeTruthy()
+  const caixa = screen.getByLabelText('Sua pergunta') as HTMLTextAreaElement
+  expect(screen.getByRole('button', { name: 'Enviar' }).hasAttribute('disabled')).toBe(true)
+  fireEvent.change(caixa, { target: { value: '  E o núcleo?  ' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Enviar' }))
+  expect(await screen.findByText('Guarda o DNA.')).toBeTruthy()
+  expect(chamadas.find((c) => c.chave === `POST /topicos/${T}/chat`)!.corpo).toEqual({ mensagem: 'E o núcleo?' })
+  expect(screen.getByText('E o núcleo?')).toBeTruthy()
+  expect(caixa.value).toBe('')
+})
+
+test('chat: Enter envia, Shift+Enter não; falha devolve o texto e mostra o erro', async () => {
+  const chamadas = servidor({ ...base, [`GET /topicos/${T}`]: [200, detalhe()], [`GET /topicos/${T}/questoes`]: [200, []], [`POST /topicos/${T}/chat`]: [429, { mensagem: 'Você atingiu o limite de 30 operações com IA por hora.', codigo: 'limite_operacoes' }] })
+  render(<App />)
+  const caixa = (await screen.findByLabelText('Sua pergunta')) as HTMLTextAreaElement
+  fireEvent.change(caixa, { target: { value: 'Por quê?' } })
+  fireEvent.keyDown(caixa, { key: 'Enter', shiftKey: true })
+  expect(chamadas.some((c) => c.chave === `POST /topicos/${T}/chat`)).toBe(false)
+  fireEvent.keyDown(caixa, { key: 'Enter' })
+  expect((await screen.findByRole('alert')).textContent).toContain('limite de 30 operações')
+  expect(caixa.value).toBe('Por quê?')
+})
+
+test('chat: limpar pede confirmação e apaga a conversa', async () => {
+  const chamadas = servidor({
+    ...base, [`GET /topicos/${T}`]: [200, detalhe()], [`GET /topicos/${T}/questoes`]: [200, []],
+    [`GET /topicos/${T}/chat`]: [200, [msg('1', 'usuario', 'oi'), msg('2', 'assistente', 'olá')]], [`DELETE /topicos/${T}/chat`]: [204],
+  })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Limpar conversa' }))
+  expect(chamadas.some((c) => c.chave === `DELETE /topicos/${T}/chat`)).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'Apagar conversa' }))
+  expect(await screen.findByText(/Tire dúvidas sobre o conteúdo/)).toBeTruthy()
+  expect(screen.queryByText('olá')).toBeNull()
+})
+
+test('chat: falha ao carregar o histórico oferece tentar de novo', async () => {
+  let n = 0
+  servidor({ ...base, [`GET /topicos/${T}`]: [200, detalhe()], [`GET /topicos/${T}/questoes`]: [200, []], [`GET /topicos/${T}/chat`]: () => (++n === 1 ? [500, {}] : [200, [msg('1', 'usuario', 'oi')]]) })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Tentar de novo' }))
+  expect(await screen.findByText('oi')).toBeTruthy()
+})
+
+test('"Baseado em" e "Voltar ao material" usam o nome do estudo, não o do arquivo', async () => {
+  servidor({ ...base, [`GET /topicos/${T}`]: [200, detalhe({ fontes: [{ materialId: 'm', nomeArquivo: 'apostila_final.docx', titulo: 'Catalogação 1', inicio: 4, fim: 5 }] })], [`GET /topicos/${T}/questoes`]: [200, []] })
+  render(<App />)
+  expect(await screen.findByRole('button', { name: /Voltar ao material "Catalogação 1"/ })).toBeTruthy()
+  expect(screen.getByText(/Baseado em Catalogação 1 \(trechos 4 a 5\)/)).toBeTruthy()
+  expect(screen.queryByText(/apostila_final\.docx/)).toBeNull()
+})
+
+test('"Gerar novas questões": do cartão do questionário, do resultado e da URL ?gerar=1 levam o cursor ao campo de quantidade', async () => {
+  window.history.replaceState(null, '', `/topicos/${T}?gerar=1`)
+  servidor({ ...base, [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })], [`GET /topicos/${T}/questoes`]: [200, [questao]], 'POST /questoes/q1/respostas': [200, { correta: true, respostaCorreta: 1, proximaRevisao: '2099-01-01' }] })
+  render(<App />)
+  const campo = await screen.findByLabelText('Quantas questões gerar')
+  await waitFor(() => expect(document.activeElement).toBe(campo))   // veio da URL
+  expect(window.location.search).toBe('')                              // o aviso vale uma vez
+  ;(document.activeElement as HTMLElement).blur()
+  fireEvent.click(screen.getByRole('button', { name: 'Gerar novas questões' }))  // do cartão do questionário
+  await waitFor(() => expect(document.activeElement).toBe(campo))
+  ;(document.activeElement as HTMLElement).blur()
+  fireEvent.click(screen.getByRole('button', { name: 'Começar questionário' }))
+  fireEvent.click(await screen.findByRole('button', { name: /Mitocôndria/ })); clicar('Confirmar resposta')
+  fireEvent.click(await screen.findByRole('button', { name: 'Ver resultado' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Gerar novas questões' }))                          // do resultado do questionário
+  await waitFor(() => expect(document.activeElement?.id).toBe('quantidade'))
+})
+
+test('dificuldade: média por padrão, a escolhida vai no pedido e o nível aparece na questão e no questionário', async () => {
+  const chamadas = servidor({
+    ...base, [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })],
+    [`GET /topicos/${T}/questoes`]: [200, [{ ...questao, dificuldade: 'dificil' }]],
+    [`POST /topicos/${T}/questoes`]: [202, { registroId: REG, verificacaoId: 'v' }], [`GET /geracoes/${REG}`]: [200, geracao({ status: 'concluida', progresso: 100, gravadas: 3 })],
+  })
+  render(<App />)
+  expect((await screen.findByLabelText('Média') as HTMLInputElement).checked).toBe(true)
+  expect(screen.getByText(/Compreender e aplicar/)).toBeTruthy()
+  fireEvent.click(screen.getByLabelText('Difícil'))
+  expect(screen.getByText(/alternativas bem parecidas/)).toBeTruthy()
+  fireEvent.click(screen.getByLabelText('Fácil'))
+  fireEvent.click(screen.getByLabelText('Difícil'))
+  fireEvent.change(screen.getByLabelText('Quantas questões gerar'), { target: { value: '3' } })
+  clicar('Gerar questões')
+  await waitFor(() => expect(chamadas.find((c) => c.chave === `POST /topicos/${T}/questoes`)!.corpo).toEqual({ quantidade: 3, dificuldade: 'dificil' }))
+  expect(screen.getAllByText('Difícil', { selector: '.nivel' }).length).toBeGreaterThan(0)   // na lista do banco de questões
+  fireEvent.click(screen.getByRole('button', { name: 'Começar questionário' }))
+  expect((await screen.findAllByText('Difícil', { selector: '.nivel' })).length).toBeGreaterThan(0)  // no cabeçalho do questionário
+})
+
+test('estudo em "Geral": o seletor de pasta mostra Geral mesmo com outra pasta antes na lista', async () => {
+  const MID2 = '55555555-5555-5555-5555-555555555555'
+  window.history.replaceState(null, '', `/materiais/${MID2}`)
+  servidor({
+    ...base, 'GET /assuntos': [200, [{ id: 'f', nome: 'Física', padrao: false }, { id: 'g', nome: 'Geral', padrao: true }]],   // a ordem da API não é garantida
+    [`GET /materiais/${MID2}`]: [200, { id: MID2, nomeArquivo: 'a.pdf', titulo: null, status: 'pronto', motivoFalha: null, paginas: 3, criadoEm: '2026-10-16T10:00:00Z', assuntoId: 'g' }],
+    [`GET /materiais/${MID2}/topicos`]: [200, []], [`GET /materiais/${MID2}/paginas`]: [200, []],
+  })
+  render(<App />)
+  const seletor = (await screen.findByLabelText('Pasta')) as HTMLSelectElement
+  await waitFor(() => expect(seletor.options.length).toBe(2))
+  expect(seletor.value).toBe('g')
+  expect(seletor.selectedOptions[0].textContent).toBe('Geral (sem pasta)')
+})
+
+test('questionário: Enter só confirma quando o foco não está em um controle (dica, outra alternativa) e confirma na escolhida ou fora de controles', async () => {
+  const chamadas = servidor({
+    ...base, [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })], [`GET /topicos/${T}/questoes`]: [200, [{ ...questao, dificuldade: 'media' }]],
+    'POST /questoes/q1/respostas': [200, { correta: true, respostaCorreta: 1, proximaRevisao: '2099-01-01' }],
+  })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Começar questionário' }))
+  const respostas = () => chamadas.filter((c) => c.chave === 'POST /questoes/q1/respostas').length
+  const nucleo = await screen.findByRole('button', { name: /Núcleo/ }); const mito = screen.getByRole('button', { name: /Mitocôndria/ })
+  fireEvent.click(nucleo)                                   // escolhe A
+  expect(fireEvent.keyDown(screen.getByRole('button', { name: 'Ver dica' }), { key: 'Enter' })).toBe(true)  // Enter na dica: não é cancelado (abre a dica)
+  expect(fireEvent.keyDown(mito, { key: 'Enter' })).toBe(true)                                              // Enter em outra alternativa: deixa escolher aquela
+  expect(respostas()).toBe(0)
+  fireEvent.click(mito); fireEvent.keyDown(document.body, { key: 'Enter' })                                 // fora de controles: confirma a escolhida (B)
+  await waitFor(() => expect(respostas()).toBe(1))
+  expect(chamadas.find((c) => c.chave === 'POST /questoes/q1/respostas')!.corpo).toEqual({ alternativa: 1 })
+})
+
+test('questionário: Enter na própria alternativa escolhida confirma', async () => {
+  const chamadas = servidor({
+    ...base, [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })], [`GET /topicos/${T}/questoes`]: [200, [questao]],
+    'POST /questoes/q1/respostas': [200, { correta: false, respostaCorreta: 1, proximaRevisao: '2099-01-01' }],
+  })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Começar questionário' }))
+  const nucleo = await screen.findByRole('button', { name: /Núcleo/ })
+  fireEvent.click(nucleo); fireEvent.keyDown(nucleo, { key: 'Enter' })
+  await waitFor(() => expect(chamadas.find((c) => c.chave === 'POST /questoes/q1/respostas')!.corpo).toEqual({ alternativa: 0 }))
+})
+
+test('questionário: uma geração que termina no meio da sessão não troca as questões de lugar', async () => {
+  let consultas = 0
+  const nova = { ...questao, id: 'q2', enunciado: 'Pergunta nova gerada agora?', respondida: false }
+  servidor({
+    ...base, [`GET /topicos/${T}`]: [200, detalhe({ totalQuestoes: 1 })],
+    [`GET /topicos/${T}/questoes`]: () => [200, consultas >= 3 ? [nova, questao] : [questao]],   // depois que a geração termina a lista tem 2 questões
+    [`POST /topicos/${T}/questoes`]: [202, { registroId: REG, verificacaoId: 'v' }],
+    [`GET /geracoes/${REG}`]: () => { consultas++; return consultas >= 3 ? [200, geracao({ status: 'concluida', progresso: 100, gravadas: 1 })] : [200, geracao({ progresso: 30 })] },
+  })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Gerar questões' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Começar questionário' }))   // começa com a geração ainda em andamento
+  expect(await screen.findByRole('heading', { name: /O que produz ATP\?/ })).toBeTruthy()
+  await waitFor(() => expect(consultas).toBeGreaterThanOrEqual(3))
+  await new Promise((r) => setTimeout(r, 60))                                             // dá tempo de o polling terminar e recarregar a lista
+  expect(screen.getByRole('heading', { name: /O que produz ATP\?/ })).toBeTruthy()       // continua a mesma questão
+  expect(screen.queryByText(/Pergunta nova gerada agora/)).toBeNull()
+  expect(screen.getByText('1 / 1')).toBeTruthy()
+})
+
+test('orientação: vem preenchida com a padrão, só vai ao pedido quando muda e pode ser salva como padrão', async () => {
+  const chamadas = servidor({
+    ...base,
+    [`GET /topicos/${T}`]: [200, detalhe({ livre: true, fontes: [], orientacao: 'foque na Espanha' })],
+    [`GET /topicos/${T}/questoes`]: [200, []],
+    [`POST /topicos/${T}/questoes`]: [202, { registroId: REG, verificacaoId: 'v' }],
+    [`GET /geracoes/${REG}`]: [200, geracao()],
+    [`PUT /topicos/${T}/orientacao`]: (c) => [200, { orientacao: c.orientacao || null }],
+  })
+  render(<App />)
+  const campo = (await screen.findByLabelText('O que você quer destacar?')) as HTMLTextAreaElement
+  expect(campo.value).toBe('foque na Espanha')
+  clicar('Gerar questões')
+  await waitFor(() => expect(chamadas.some((c) => c.chave === `POST /topicos/${T}/questoes`)).toBe(true))
+  expect(chamadas.find((c) => c.chave === `POST /topicos/${T}/questoes`)!.corpo).toEqual({ quantidade: 5, dificuldade: 'media' })
+  fireEvent.change(campo, { target: { value: 'estilo FCC' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Salvar como padrão do tópico' }))
+  expect(await screen.findByText('Orientação salva como padrão deste tópico.')).toBeTruthy()
+  expect(chamadas.find((c) => c.chave === `PUT /topicos/${T}/orientacao`)!.corpo).toEqual({ orientacao: 'estilo FCC' })
+  expect((screen.getByRole('button', { name: 'Salvar como padrão do tópico' }) as HTMLButtonElement).disabled).toBe(true)
+})
+
+test('orientação alterada e não salva vai só no pedido de geração, inclusive vazia (gerar sem orientação desta vez)', async () => {
+  const chamadas = servidor({
+    ...base,
+    [`GET /topicos/${T}`]: [200, detalhe({ livre: true, fontes: [], orientacao: 'foque na Espanha' })],
+    [`GET /topicos/${T}/questoes`]: [200, []],
+    [`POST /topicos/${T}/resumo`]: [202, { registroId: REG, verificacaoId: null }],
+    [`GET /geracoes/${REG}`]: [200, geracao({ operacao: 'resumo' })],
+  })
+  render(<App />)
+  fireEvent.change(await screen.findByLabelText('O que você quer destacar?'), { target: { value: '' } })
+  clicar('Gerar resumo')
+  await waitFor(() => expect(chamadas.some((c) => c.chave === `POST /topicos/${T}/resumo`)).toBe(true))
+  expect(chamadas.find((c) => c.chave === `POST /topicos/${T}/resumo`)!.corpo).toEqual({ orientacao: '' })
+})
+
+test('mudar de pasta direto no cartão da lista inicial, para material e para tópico livre', async () => {
+  const chamadas = inicio({ 'PUT /materiais/m1/assunto': [200, { id: 'f', nome: 'Física', padrao: false }], 'PUT /topicos/t1/assunto': [200, { id: 'h', nome: 'História', padrao: false }] })
+  render(<App />)
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Pasta de Segunda Guerra' }), { target: { value: 'f' } })
+  await waitFor(() => expect(chamadas.find((c) => c.chave === 'PUT /materiais/m1/assunto')!.corpo).toEqual({ assuntoId: 'f' }))
+  fireEvent.change(screen.getByRole('combobox', { name: 'Pasta de Óptica' }), { target: { value: 'h' } })
+  await waitFor(() => expect(chamadas.find((c) => c.chave === 'PUT /topicos/t1/assunto')!.corpo).toEqual({ assuntoId: 'h' }))
+  expect(chamadas.filter((c) => c.chave === 'GET /materiais').length).toBeGreaterThan(1)  // a lista é recarregada depois de mover
+})
+
+test('no tópico de material o seletor de pasta move o material inteiro', async () => {
+  const chamadas = servidor({
+    ...base, 'GET /assuntos': [200, pastas],
+    [`GET /topicos/${T}`]: [200, detalhe()], [`GET /topicos/${T}/questoes`]: [200, []],
+    'PUT /materiais/m/assunto': [200, { id: 'f', nome: 'Física', padrao: false }],
+  })
+  render(<App />)
+  fireEvent.change(await screen.findByRole('combobox', { name: 'Pasta de Células' }), { target: { value: 'f' } })
+  await waitFor(() => expect(chamadas.find((c) => c.chave === 'PUT /materiais/m/assunto')!.corpo).toEqual({ assuntoId: 'f' }))
+  expect(screen.getByText(/O estudo inteiro/)).toBeTruthy()
 })

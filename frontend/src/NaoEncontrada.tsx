@@ -2,6 +2,11 @@ import Marca from './Marca'
 import TemaToggle from './TemaToggle'
 import { useTitulo } from './titulo'
 
+/**
+ * Tela 404.
+ * @param props logado: se há sessão (muda o destino do botão); aoVoltar: chamado ao clicar no botão.
+ * @returns a tela de página não encontrada.
+ */
 export default function NaoEncontrada({ logado, aoVoltar }: { logado: boolean; aoVoltar: () => void }) {
   useTitulo('Página não encontrada')
   return (

@@ -36,12 +36,28 @@ class EmailTesteConfig {
     fun emailCaptura() = EmailCaptura()
 }
 
+/** Relógio dos testes: segue o tempo real até [fixar]; as cópias de `withZone` compartilham o mesmo valor. Testes que fixam devem chamar [liberar]. */
+class RelogioTeste(private val zona: java.time.ZoneId = java.time.ZoneOffset.UTC, private val origem: java.util.concurrent.atomic.AtomicReference<java.time.Instant?> = java.util.concurrent.atomic.AtomicReference()) : java.time.Clock() {
+    override fun getZone(): java.time.ZoneId = zona
+    override fun withZone(zone: java.time.ZoneId): java.time.Clock = RelogioTeste(zone, origem)
+    override fun instant(): java.time.Instant = origem.get() ?: java.time.Instant.now()
+    fun fixar(instante: String) = origem.set(java.time.Instant.parse(instante))
+    fun liberar() = origem.set(null)
+}
+
+@org.springframework.boot.test.context.TestConfiguration
+class RelogioTesteConfig {
+    @org.springframework.context.annotation.Bean
+    @org.springframework.context.annotation.Primary
+    fun relogioTeste() = RelogioTeste()
+}
+
 // Testes rodam sem segundo plano (e-mails aparecem na hora) e com limite de taxa alto; LimiteTaxaTest baixa o limite.
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["nexo.conta.assincrono=false", "nexo.material.assincrono=false", "nexo.geracao.assincrono=false", "nexo.limite-publico.requisicoes=100000"],
 )
-@org.springframework.context.annotation.Import(EmailTesteConfig::class)
+@org.springframework.context.annotation.Import(EmailTesteConfig::class, RelogioTesteConfig::class)
 abstract class BaseIntegracao {
     @Autowired lateinit var jdbc: JdbcTemplate // papel nexo_app
     @LocalServerPort var porta: Int = 0

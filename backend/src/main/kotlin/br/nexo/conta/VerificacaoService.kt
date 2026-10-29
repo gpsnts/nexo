@@ -7,7 +7,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.support.TransactionTemplate
 
 /**
- * Verificação do e-mail no cadastro (ADR 0014): a conta nasce sem entrar. Quem registrou o e-mail de outra pessoa não consegue usá-lo,
+ * Verificação do e-mail no cadastro: a conta nasce sem entrar. Quem registrou o e-mail de outra pessoa não consegue usá-lo,
  * e o dono de verdade recupera o endereço pelo "Esqueci minha senha" (que também confirma o e-mail).
  */
 @Service
@@ -20,7 +20,11 @@ class VerificacaoService(
     private val props: NexoProperties,
     private val auditoria: Auditoria,
 ) {
-    /** Em segundo plano e com o mesmo limite por hora da recuperação de senha. */
+    /**
+     * Envia o link de verificação do e-mail, em segundo plano e com o mesmo limite por hora da recuperação de senha.
+     * @param u usuário que deve confirmar o e-mail.
+     * @return nada; a tarefa roda em segundo plano.
+     */
     fun enviar(u: Usuario) = segundoPlano.executar {
         if (tokens.pedidosNaUltimaHora(u.id, VERIFICACAO) < props.conta.pedidosPorHora) {
             val bruto = tokens.criar(u.id, VERIFICACAO, null, props.conta.validadeConfirmacaoEmail)
@@ -30,12 +34,21 @@ class VerificacaoService(
         }
     }
 
-    /** Resposta sempre igual, exista ou não a conta, esteja ou não verificada. */
+    /**
+     * Reenvia o link de verificação. Resposta sempre igual, exista ou não a conta, esteja ou não verificada.
+     * @param emailInformado e-mail digitado pela pessoa (normalizado aqui).
+     */
     fun reenviar(emailInformado: String) {
         val u = usuarios.findByEmail(normalizarEmail(emailInformado)) ?: return
         if (u.emailVerificadoEm == null) enviar(u)
     }
 
+    /**
+     * Confirma o e-mail a partir do link recebido e marca o token como usado.
+     * @param bruto token bruto do link.
+     * @return nada.
+     * @throws ErroNegocio 400 se o link for inválido, usado ou expirado.
+     */
     fun verificar(bruto: String) = tx.executeWithoutResult {
         val t = tokens.validar(bruto, VERIFICACAO)
         val u = usuarios.findById(t.usuarioId).orElseThrow { TokenContaService.linkInvalido() }

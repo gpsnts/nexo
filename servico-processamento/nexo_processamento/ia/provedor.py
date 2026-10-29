@@ -6,12 +6,27 @@ class ErroProvedor(RuntimeError):
     """O provedor recusou ou falhou. [retentavel]: vale repetir (5xx, rede, 429 de cota passageira); falso para chave, modelo e pedido inválidos ou sem crédito."""
 
     def __init__(self, codigo: str, mensagem: str, retentavel: bool):
+        """Cria o erro.
+
+        Args:
+            codigo: código curto estável (ex.: `sem_credito`, `chave_recusada`).
+            mensagem: texto claro para o usuário, sem a chave de API.
+            retentavel: se vale repetir a chamada.
+        """
         super().__init__(mensagem)
         self.codigo = codigo
         self.retentavel = retentavel
 
 
 def _corpo(resp: httpx.Response) -> dict:
+    """Extrai o objeto `error` do corpo JSON da resposta.
+
+    Args:
+        resp: resposta HTTP do provedor.
+
+    Returns:
+        O dicionário `error`, ou vazio se o corpo não for JSON no formato esperado.
+    """
     try:
         d = resp.json()
         return d.get("error", {}) if isinstance(d, dict) and isinstance(d.get("error"), dict) else {}
@@ -24,17 +39,40 @@ CODIGOS_SEM_CREDITO = {"insufficient_quota", "credit_balance_exhausted", "billin
 
 
 def _sem_credito(e: dict) -> bool:
+    """Indica falta de crédito ou cota.
+
+    Args:
+        e: objeto `error` da resposta.
+
+    Returns:
+        True se o tipo ou o código indicam conta sem crédito.
+    """
     return e.get("type") == "insufficient_quota" or e.get("code") in CODIGOS_SEM_CREDITO
 
 
 def _chave_invalida(e: dict) -> bool:
-    """O Google responde 400 (não 401) para chave inválida: `API key not valid` na mensagem ou `API_KEY_INVALID` nos detalhes."""
+    """Indica chave de API inválida (o Google responde 400, não 401).
+
+    Args:
+        e: objeto `error` da resposta.
+
+    Returns:
+        True se a mensagem ou os detalhes apontam chave inválida.
+    """
     detalhes = e.get("details") if isinstance(e.get("details"), list) else []
     return "api key not valid" in str(e.get("message", "")).lower() or any(isinstance(d, dict) and d.get("reason") == "API_KEY_INVALID" for d in detalhes)
 
 
 def erro_da_resposta(resp: httpx.Response, o_que: str) -> ErroProvedor:
-    """Traduz uma resposta HTTP que não foi 200 (formato da OpenAI e do Google)."""
+    """Traduz uma resposta HTTP que não foi 200 (formato da OpenAI e do Google).
+
+    Args:
+        resp: resposta HTTP do provedor.
+        o_que: nome da operação, prefixo da mensagem (ex.: "Falha no modelo de linguagem").
+
+    Returns:
+        ErroProvedor com código, mensagem e marca de repetível conforme o status.
+    """
     s = resp.status_code
     e = _corpo(resp)
     if _chave_invalida(e):
@@ -55,7 +93,14 @@ def erro_da_resposta(resp: httpx.Response, o_que: str) -> ErroProvedor:
 
 
 def segundos_de_espera(resp: httpx.Response) -> float | None:
-    """Espera sugerida pelo provedor: cabeçalho `Retry-After` (OpenAI) ou `retryDelay` em `error.details` (Google, ex.: "34s")."""
+    """Espera sugerida pelo provedor: cabeçalho `Retry-After` (OpenAI) ou `retryDelay` em `error.details` (Google, ex.: "34s").
+
+    Args:
+        resp: resposta HTTP (normalmente um 429).
+
+    Returns:
+        Segundos a esperar, ou None se o provedor não sugeriu.
+    """
     try:
         return float(resp.headers["retry-after"])
     except (KeyError, ValueError):

@@ -7,7 +7,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Serviço de processamento de mentira para os testes do backend (contrato do ADR 0024). O comportamento sai de marcadores no CONTEÚDO do arquivo:
+ * Serviço de processamento de mentira para os testes do backend . O comportamento sai de marcadores no CONTEÚDO do arquivo:
  * `PAGINAS=n` (páginas do PDF), `TRECHOS=n` (quantos trechos devolver, 5 por padrão), `SEMTEXTO` (422 sem_texto) e `QUEBRAINSPECAO` e `QUEBRAPROCESSAR` (500 sempre na etapa).
  * Arquivo que começa com `%PDF-` é pdf, com `PK` é docx e o resto é txt.
  */
@@ -24,6 +24,7 @@ class PythonFalso(val segredo: String) {
     @Volatile var segredoRecebidoErrado = false
     @Volatile var modeloEmbedding = "embedding-falso"  // nome do modelo de embedding em /saude (um nome sem "falso" simula embedding real)
     @Volatile var modeloLinguagem = "linguagem-falso"  // nome devolvido em /saude e nas respostas (um nome sem "falso" simula modelo real)
+    @Volatile var textoChat: String? = null  // resposta do chat no lugar do eco da pergunta (para testar respostas longas)
     @Volatile var statusGeracao: Int? = null  // resumo, questões e verificação respondem este status enquanto definido
     @Volatile var reprovar: (String) -> Boolean = { false }  // a verificação reprova o enunciado quando devolve true
     @Volatile var semApoio = false  // a verificação aprova mas não cita trechos
@@ -63,6 +64,15 @@ class PythonFalso(val segredo: String) {
         servidor.createContext("/interno/verificar") { interno(it) { x, c -> geracao(x, "verificar", c) {
             val ok = !reprovar(json.readTree(c)["questao"]["enunciado"].asString())
             responder(x, 200, """{"sustentada":$ok,"unica_correta":${!naoSustentada},"ordens":${if (semApoio || !ok) "[]" else "[1]"},"motivo":"teste","tokens_entrada":20,"tokens_saida":5,"modelo":"$modeloLinguagem"}""")
+        } } }
+        servidor.createContext("/interno/dica") { interno(it) { x, c -> geracao(x, "dica", c) {
+            responder(x, 200, """{"texto":"Dica de teste","tokens_entrada":15,"tokens_saida":6,"modelo":"$modeloLinguagem"}""")
+        } } }
+        servidor.createContext("/interno/chat") { interno(it) { x, c -> geracao(x, "chat", c) {
+            responder(x, 200, """{"texto":${json.writeValueAsString(textoChat ?: ("Resposta sobre: " + json.readTree(c)["pergunta"].asString()))},"tokens_entrada":40,"tokens_saida":10,"modelo":"$modeloLinguagem"}""")
+        } } }
+        servidor.createContext("/interno/nome") { interno(it) { x, c -> geracao(x, "nome", c) {
+            responder(x, 200, """{"texto":"Nome sugerido de teste","tokens_entrada":25,"tokens_saida":4,"modelo":"$modeloLinguagem"}""")
         } } }
         servidor.executor = java.util.concurrent.Executors.newCachedThreadPool()
         servidor.start()

@@ -7,6 +7,13 @@ pasta = os.path.join(os.path.dirname(__file__), "fixtures")
 
 
 def com_texto(nome: str, paginas: int, rotulo: str):
+    """Gera um PDF com texto, com um capítulo a cada 5 páginas.
+
+    Args:
+        nome: nome do arquivo em `fixtures`.
+        paginas: quantidade de páginas.
+        rotulo: texto do título dos capítulos.
+    """
     c = canvas.Canvas(os.path.join(pasta, nome), pagesize=A4)
     for pg in range(1, paginas + 1):
         c.setFont("Helvetica-Bold", 20)

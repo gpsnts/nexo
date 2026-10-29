@@ -118,14 +118,48 @@ SELECT t_eq('conta nova nasce sem e-mail verificado', (SELECT count(*) FROM usua
 SELECT t_eq('índice parcial das contas não verificadas (V4)', (SELECT count(*) FROM pg_indexes WHERE indexname='usuario_nao_verificado_idx' AND indexdef LIKE '%email_verificado_em IS NULL%'), 1);
 SELECT t_ok('gatilho renova atualizado_em da sessão', $q$UPDATE sessao SET revogado_em = now() WHERE id='20000001-0000-0000-0000-000000000001'$q$);
 
+-- 4b) dica e chat (V8)
+SELECT t_ok('dica gravada na questão', $q$UPDATE questao SET dica = 'Pense na usina de energia da célula.' WHERE id='1000000a-0000-0000-0000-00000000000a'$q$);
+SELECT t_err('dica em branco', $q$UPDATE questao SET dica = '   ' WHERE id='1000000a-0000-0000-0000-00000000000a'$q$);
+SELECT t_ok('registro de dica', $q$INSERT INTO registro_geracao(id,usuario_id,topico_id,operacao,tipo_entrada,modelo_ia,status,tokens_entrada,tokens_saida,custo_estimado_usd,questoes_aprovadas,questoes_rejeitadas,questoes_repetidas,progresso_percentual) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','dica','material','m','pendente',0,0,0,0,0,0,0)$q$);
+SELECT t_ok('registro de chat', $q$INSERT INTO registro_geracao(id,usuario_id,topico_id,operacao,tipo_entrada,modelo_ia,status,tokens_entrada,tokens_saida,custo_estimado_usd,questoes_aprovadas,questoes_rejeitadas,questoes_repetidas,progresso_percentual) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','chat','material','m','pendente',0,0,0,0,0,0,0)$q$);
+SELECT t_err('operação de IA fora da lista', $q$INSERT INTO registro_geracao(id,usuario_id,topico_id,operacao,tipo_entrada,modelo_ia,status,tokens_entrada,tokens_saida,custo_estimado_usd,questoes_aprovadas,questoes_rejeitadas,questoes_repetidas,progresso_percentual) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','conversa','material','m','pendente',0,0,0,0,0,0,0)$q$);
+SELECT t_ok('mensagem do estudante no chat do tópico', $q$INSERT INTO mensagem_chat(id,usuario_id,topico_id,papel,conteudo) VALUES ('30000001-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','usuario','Por quê?')$q$);
+SELECT t_ok('resposta do tutor', $q$INSERT INTO mensagem_chat(id,usuario_id,topico_id,papel,conteudo) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','assistente','Porque sim.')$q$);
+SELECT t_err('papel de mensagem inválido', $q$INSERT INTO mensagem_chat(id,usuario_id,topico_id,papel,conteudo) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','sistema','x')$q$);
+SELECT t_err('mensagem em branco', $q$INSERT INTO mensagem_chat(id,usuario_id,topico_id,papel,conteudo) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','usuario','  ')$q$);
+SELECT t_err('chat de A em tópico de B', $q$INSERT INTO mensagem_chat(id,usuario_id,topico_id,papel,conteudo) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000009-0000-0000-0000-000000000009','usuario','x')$q$);
+SELECT t_ok('chat de B no tópico de B', $q$INSERT INTO mensagem_chat(id,usuario_id,topico_id,papel,conteudo) VALUES (gen_random_uuid(),'bbbbbbbb-0000-0000-0000-000000000002','10000009-0000-0000-0000-000000000009','usuario','oi')$q$);
+
+-- 4c) nome do estudo (V9)
+SELECT t_ok('estudo com nome próprio', $q$UPDATE material SET titulo = 'Segunda Guerra Mundial' WHERE id='10000004-0000-0000-0000-000000000004'$q$);
+SELECT t_err('nome do estudo em branco', $q$UPDATE material SET titulo = '  ' WHERE id='10000004-0000-0000-0000-000000000004'$q$);
+SELECT t_ok('nome do estudo volta a nulo (usa o arquivo)', $q$UPDATE material SET titulo = NULL WHERE id='10000004-0000-0000-0000-000000000004'$q$);
+SELECT t_ok('registro de sugestão de nome do estudo', $q$INSERT INTO registro_geracao(id,usuario_id,material_id,operacao,tipo_entrada,modelo_ia,status,tokens_entrada,tokens_saida,custo_estimado_usd,questoes_aprovadas,questoes_rejeitadas,questoes_repetidas,progresso_percentual) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000004-0000-0000-0000-000000000004','nome_estudo','material','m','pendente',0,0,0,0,0,0,0)$q$);
+
+-- 4d) dificuldade da questão (V10)
+SELECT t_eq('questão antiga fica como média', (SELECT count(*) FROM questao WHERE id='1000000a-0000-0000-0000-00000000000a' AND dificuldade='media'), 1);
+SELECT t_ok('questão difícil', $q$UPDATE questao SET dificuldade = 'dificil' WHERE id='1000000a-0000-0000-0000-00000000000a'$q$);
+SELECT t_err('dificuldade fora da lista', $q$UPDATE questao SET dificuldade = 'impossivel' WHERE id='1000000a-0000-0000-0000-00000000000a'$q$);
+SELECT t_err('dificuldade nula', $q$UPDATE questao SET dificuldade = NULL WHERE id='1000000a-0000-0000-0000-00000000000a'$q$);
+
+-- 4e) orientação do tópico (V11)
+SELECT t_ok('orientação do tópico', $q$UPDATE topico SET orientacao = 'foque em Espanha e Portugal' WHERE id='10000007-0000-0000-0000-000000000007'$q$);
+SELECT t_err('orientação vazia', $q$UPDATE topico SET orientacao = '' WHERE id='10000007-0000-0000-0000-000000000007'$q$);
+SELECT t_err('orientação acima de 500 caracteres', $q$UPDATE topico SET orientacao = repeat('x', 501) WHERE id='10000007-0000-0000-0000-000000000007'$q$);
+SELECT t_ok('orientação pode voltar a nula', $q$UPDATE topico SET orientacao = NULL WHERE id='10000007-0000-0000-0000-000000000007'$q$);
+
 -- 5) isolamento por conta (papel da aplicação)
 SET ROLE nexo_app;
 SELECT t_eq('sem app.usuario_id: nenhuma linha de topico_fonte', (SELECT count(*) FROM topico_fonte), 0);
+SELECT t_eq('sem app.usuario_id: nenhuma mensagem de chat', (SELECT count(*) FROM mensagem_chat), 0);
 SELECT set_config('app.usuario_id','aaaaaaaa-0000-0000-0000-000000000001',false);
 SELECT t_eq('usuário A enxerga as 3 fontes dele', (SELECT count(*) FROM topico_fonte), 3);
 SELECT set_config('app.usuario_id','bbbbbbbb-0000-0000-0000-000000000002',false);
 SELECT t_eq('usuário B não enxerga fontes de A', (SELECT count(*) FROM topico_fonte), 0);
 SELECT t_eq('usuário B não enxerga questões de A', (SELECT count(*) FROM questao), 0);
+SELECT t_eq('usuário B só enxerga o próprio chat', (SELECT count(*) FROM mensagem_chat), 1);
+SELECT t_err('usuário B não grava mensagem em nome de A', $q$INSERT INTO mensagem_chat(id,usuario_id,topico_id,papel,conteudo) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','usuario','x')$q$);
 SELECT t_err('usuário B não grava fonte em nome de A',
  $q$INSERT INTO topico_fonte(id,usuario_id,topico_id,material_id,ordem_trecho_inicial,ordem_trecho_final) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000008-0000-0000-0000-000000000008','10000004-0000-0000-0000-000000000004',4,5)$q$);
 SELECT t_eq('nexo_app não lê o histórico do Flyway (se existir)', (SELECT count(*) FROM pg_class WHERE relname='flyway_schema_history' AND has_table_privilege('nexo_app', oid, 'SELECT')), 0);
@@ -143,12 +177,13 @@ SELECT t_eq('ligações questao_trecho de M1 saíram', (SELECT count(*) FROM que
 SELECT t_eq('registro da indexação mantido', (SELECT count(*) FROM registro_geracao WHERE id='1000000e-0000-0000-0000-00000000000e'), 1);
 
 -- 7) exclusão da conta
-SELECT t_eq('nexo_app lê e grava sessao e token_conta (sem RLS, ADR 0010)', (SELECT count(*) FROM sessao) + (SELECT count(*) FROM token_conta), 4);
+SELECT t_eq('nexo_app lê e grava sessao e token_conta (sem RLS)', (SELECT count(*) FROM sessao) + (SELECT count(*) FROM token_conta), 4);
 SELECT t_ok('excluir conta A em uma instrução', $q$DELETE FROM usuario WHERE id='aaaaaaaa-0000-0000-0000-000000000001'$q$);
 RESET ROLE;
 SELECT t_eq('sessões e tokens de A saíram em cascata', (SELECT count(*) FROM sessao WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001') + (SELECT count(*) FROM token_conta WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001'), 0);
 SELECT t_eq('sobrou nada de A (fontes, questões, provas, registros, trechos)',
  (SELECT (SELECT count(*) FROM topico_fonte WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM questao WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM prova WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM registro_geracao WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM trecho WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')), 0);
+SELECT t_eq('chat de A saiu em cascata e o de B ficou', (SELECT count(*) FROM mensagem_chat WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001') * 10 + (SELECT count(*) FROM mensagem_chat WHERE usuario_id='bbbbbbbb-0000-0000-0000-000000000002'), 1);
 SELECT t_eq('dados de B intactos', (SELECT count(*) FROM trecho WHERE usuario_id='bbbbbbbb-0000-0000-0000-000000000002'), 5);
 
 -- limpeza

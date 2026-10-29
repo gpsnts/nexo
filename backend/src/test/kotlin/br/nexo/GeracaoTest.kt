@@ -16,7 +16,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
-/** Resumo, questões e verificação de fidelidade (UC06 a UC09, F3): conteúdo-base restrito à faixa, só aprovadas gravadas, registros, limites e isolamento. */
+/** Resumo, questões e verificação de fidelidade: conteúdo-base restrito à faixa, só aprovadas gravadas, registros, limites e isolamento. */
 class GeracaoTest : BaseIntegracao() {
     @Autowired lateinit var gDados: GeracaoDados
     @Autowired lateinit var transacao: TransactionTemplate
@@ -52,7 +52,35 @@ class GeracaoTest : BaseIntegracao() {
         python.propostaTopicos = "[]"; python.statusGeracao = null; python.reprovar = { false }; python.semApoio = false; python.naoSustentada = false; python.roteiroQuestoes.clear(); python.aoReceber = null
     }
 
-    // ---------------------------------------------------------------- UC06 e UC08
+    @Test
+    fun `dificuldade escolhida vai ao modelo, fica gravada na questao e aparece na lista e na revisao`() {
+        val c = conta(); val t = livre(c)
+        assertEquals(202, chamar("POST", "/topicos/$t/questoes", """{"quantidade":2,"dificuldade":"dificil"}""", c.token).status)
+        assertTrue(python.corpos.last { it.startsWith("questoes:") }.contains("\"dificuldade\":\"dificil\""))
+        assertEquals(listOf("dificil", "dificil"), dono.queryForList("SELECT dificuldade FROM questao WHERE topico_id = ?::uuid", String::class.java, t))
+        assertEquals(listOf("dificil", "dificil"), chamar("GET", "/topicos/$t/questoes", token = c.token).corpo.toList().map { it["dificuldade"].asString() })
+        assertEquals(202, questoes(c, t, 1).status, "sem dificuldade vale média")
+        assertTrue(python.corpos.last { it.startsWith("questoes:") }.contains("\"dificuldade\":\"media\""))
+        assertEquals(1, dono.queryForObject("SELECT count(*) FROM questao WHERE topico_id = ?::uuid AND dificuldade = 'media'", Int::class.java, t))
+        val facil = chamar("POST", "/topicos/$t/questoes", """{"quantidade":1,"dificuldade":"facil"}""", c.token)
+        assertEquals(202, facil.status)
+        // a revisão devolve o nível de cada questão vencida
+        dono.update("INSERT INTO progresso_questao(id,usuario_id,questao_id,repeticoes,intervalo_dias,fator_facilidade,ultima_revisao,proxima_revisao) SELECT gen_random_uuid(), usuario_id, id, 1, 1, 2.50, current_date - 2, current_date - 1 FROM questao WHERE topico_id = ?::uuid AND dificuldade = 'facil'", t)
+        assertEquals(listOf("facil"), chamar("GET", "/revisao", token = c.token).corpo["questoes"].toList().map { it["dificuldade"].asString() })
+    }
+
+    @Test
+    fun `dificuldade invalida e recusada antes de criar registro ou chamar o modelo`() {
+        val c = conta(); val t = livre(c)
+        python.chamadas.clear()
+        for (nivel in listOf("impossivel", "", "DIFICIL")) {
+            val r = chamar("POST", "/topicos/$t/questoes", """{"quantidade":1,"dificuldade":"$nivel"}""", c.token)
+            assertEquals(400, r.status, nivel); assertEquals("dados_invalidos", r.corpo["codigo"].asString())
+        }
+        assertTrue("questoes" !in python.chamadas); assertEquals(0, dono.queryForObject("SELECT count(*) FROM registro_geracao WHERE topico_id = ?::uuid", Int::class.java, t))
+    }
+
+    // ---------------------------------------------------------------- resumo e conteúdo-base
     @Test
     fun `resumo usa so a faixa do topico, registra a operacao e aparece no topico`() {
         val c = conta(); val (_, a, _) = material(c)
@@ -94,7 +122,7 @@ class GeracaoTest : BaseIntegracao() {
         assertEquals(true, chamar("GET", "/topicos/$t", token = c.token).corpo["livre"].asBoolean())
     }
 
-    // ---------------------------------------------------------------- UC07 e UC09
+    // ---------------------------------------------------------------- questões e verificação
     @Test
     fun `questoes aprovadas sao gravadas com apoio nos trechos da faixa e os dois registros fecham`() {
         val c = conta(); val (_, a, _) = material(c)
@@ -116,7 +144,9 @@ class GeracaoTest : BaseIntegracao() {
         val lista = chamar("GET", "/topicos/$a/questoes", token = c.token).corpo.toList()
         assertEquals(5, lista.size)
         lista.forEach { q ->
-            assertEquals(4, q["alternativas"].size()); assertTrue(q["alternativas"][q["respostaCorreta"].asInt()].asString().startsWith("Certa"), "resposta_correta aponta a alternativa certa embaralhada")
+            assertEquals(4, q["alternativas"].size()); assertTrue(q["respostaCorreta"].isNull, "o gabarito só sai depois de responder"); assertEquals(false, q["respondida"].asBoolean())
+            val certa = dono.queryForObject("SELECT resposta_correta FROM questao WHERE id = ?::uuid", Int::class.java, q["id"].asString())!!
+            assertTrue(q["alternativas"][certa].asString().startsWith("Certa"), "resposta_correta aponta a alternativa certa embaralhada")
         }
         assertEquals(5, chamar("GET", "/topicos/$a", token = c.token).corpo["totalQuestoes"].asInt())
         assertEquals(hashDoEnunciado(lista[0]["enunciado"].asString()), dono.queryForObject("SELECT enunciado_hash FROM questao WHERE id = ?::uuid", String::class.java, lista[0]["id"].asString()))
@@ -237,7 +267,7 @@ class GeracaoTest : BaseIntegracao() {
         assertEquals(202, resumo(c, a).status)
     }
 
-    // ---------------------------------------------------------------- cancelamento (ADR 0036)
+    // ---------------------------------------------------------------- cancelamento
     private fun abertoDe(c: Conta, op: String) = dono.queryForObject("SELECT id FROM registro_geracao WHERE usuario_id = ? AND operacao = ? AND status IN ('pendente','em_andamento')", String::class.java, c.id, op)!!
     private fun cancelar(c: Conta, id: String) = chamar("POST", "/geracoes/$id/cancelar", token = c.token)
     private fun motivos(t: String) = dono.queryForList("SELECT operacao||':'||status||':'||coalesce(motivo_falha,'-') FROM registro_geracao WHERE topico_id = ?::uuid ORDER BY operacao", String::class.java, t).filterNotNull()
@@ -371,7 +401,7 @@ class GeracaoTest : BaseIntegracao() {
         assertEquals(false, gerandoLivre()); assertEquals(false, gerandoMaterial())
     }
 
-    // ---------------------------------------------------------------- limites (ADR 0033)
+    // ---------------------------------------------------------------- limites
     private fun encher(c: Conta, n: Int, custo: String = "0") = repeat(n) {
         dono.update(
             """INSERT INTO registro_geracao(id,usuario_id,operacao,tipo_entrada,modelo_ia,status,tokens_entrada,tokens_saida,custo_estimado_usd,questoes_aprovadas,questoes_rejeitadas,questoes_repetidas,progresso_percentual,finalizada_em)
@@ -390,11 +420,11 @@ class GeracaoTest : BaseIntegracao() {
     }
 
     @Test
-    fun `limite de gasto recusa com mensagem clara`() {
+    fun `cota semanal esgotada recusa com mensagem clara`() {
         val c = conta(); val t = livre(c)
-        encher(c, 1, "10.000000")
+        encher(c, 1, "10.000000")   // US$ 10 = 100 mil créditos: muito além da cota de 300
         val r = questoes(c, t)
-        assertEquals(429, r.status); assertEquals("limite_gasto", r.corpo["codigo"].asString()); assertTrue(r.corpo["mensagem"].asString().isNotBlank())
+        assertEquals(429, r.status); assertEquals("limite_creditos", r.corpo["codigo"].asString()); assertTrue(r.corpo["mensagem"].asString().isNotBlank())
         assertEquals(0, nQuestoes(t))
     }
 
@@ -481,7 +511,7 @@ class GeracaoTest : BaseIntegracao() {
     }
 
     @Test
-    fun `topico com resumo ou questoes fica congelado (ADR 0028)`() {
+    fun `topico com resumo ou questoes fica congelado`() {
         val c = conta(); val (m, a, _) = material(c)
         resumo(c, a)
         val corpo = """{"topicos":[{"id":"$a","nome":"A","inicio":1,"fim":4},{"nome":"B","inicio":5,"fim":30}]}"""

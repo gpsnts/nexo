@@ -1,3 +1,4 @@
+"""Interface de modelo de linguagem e seus adaptadores (falso e OpenAI), com tratamento de limite de requisições."""
 import os
 import time
 from dataclasses import dataclass
@@ -10,15 +11,39 @@ from nexo_processamento.ia.provedor import ErroProvedor, erro_da_resposta, segun
 
 @dataclass(frozen=True)
 class RespostaLinguagem:
+    """Resultado de uma chamada ao modelo de linguagem.
+
+    Attributes:
+        texto: texto devolvido.
+        tokens_entrada: tokens do prompt.
+        tokens_saida: tokens gerados (inclui os de raciocínio, quando houver).
+    """
+
     texto: str
     tokens_entrada: int
     tokens_saida: int
 
 
 class ModeloLinguagem(Protocol):
+    """Contrato de um modelo de linguagem.
+
+    Attributes:
+        nome: identificador do modelo, gravado em `registro_geracao.modelo_ia`.
+    """
+
     nome: str
 
-    def gerar(self, prompt: str, imagens: list[bytes] | None = None) -> RespostaLinguagem: ...
+    def gerar(self, prompt: str, imagens: list[bytes] | None = None) -> RespostaLinguagem:
+        """Envia um prompt ao modelo.
+
+        Args:
+            prompt: texto completo do pedido.
+            imagens: imagens para modelo com visão (ainda não suportado nos adaptadores reais).
+
+        Returns:
+            RespostaLinguagem com texto e tokens.
+        """
+        ...
 
 
 ESPERA_MAXIMA_429_S = 20.0  # só espera o Retry-After quando for curto; senão devolve o erro (a tela mostra mensagem e o usuário tenta de novo)
@@ -32,6 +57,16 @@ class ModeloLinguagemOpenAI:
     """
 
     def __init__(self, chave: str, modelo: str, max_tokens: int = 4096, cliente: httpx.Client | None = None, espera=time.sleep, temperatura: float | None = None):
+        """Cria o adaptador.
+
+        Args:
+            chave: chave de API da OpenAI.
+            modelo: nome do modelo.
+            max_tokens: teto de `max_completion_tokens` por chamada.
+            cliente: cliente HTTP (injetável nos testes).
+            espera: função de espera (injetável nos testes).
+            temperatura: temperatura, só enviada quando informada.
+        """
         self.nome = modelo
         self._chave = chave
         self._max_tokens = max_tokens
@@ -40,8 +75,21 @@ class ModeloLinguagemOpenAI:
         self._espera = espera
 
     def gerar(self, prompt: str, imagens: list[bytes] | None = None) -> RespostaLinguagem:
+        """Chama `/v1/chat/completions`; num 429 com espera curta sugerida, espera e tenta uma vez mais.
+
+        Args:
+            prompt: texto do pedido.
+            imagens: não suportado ainda.
+
+        Returns:
+            RespostaLinguagem com o texto e os tokens de entrada e saída.
+
+        Raises:
+            ErroProvedor: rede, status diferente de 200, resposta inesperada, cortada ou vazia.
+            NotImplementedError: se `imagens` for informado.
+        """
         if imagens:
-            raise NotImplementedError("descrição de figuras é a F6c")
+            raise NotImplementedError("descrição de figuras ainda não é suportada")
         corpo = {"model": self.nome, "messages": [{"role": "user", "content": prompt}], "max_completion_tokens": self._max_tokens}
         if self._temperatura is not None:
             corpo["temperature"] = self._temperatura
@@ -72,22 +120,39 @@ class ModeloLinguagemOpenAI:
 
 
 class ModeloLinguagemFalso:
+    """Modelo de linguagem de demonstração e testes: respostas determinísticas, sem provedor real."""
     nome = "linguagem-falso"
 
     def gerar(self, prompt: str, imagens: list[bytes] | None = None) -> RespostaLinguagem:
         # Pedido de reorganização: o falso "aprova" a divisão atual (devolve o JSON que recebeu), para o fluxo poder ser demonstrado sem provedor real.
+        """Responde conforme a tarefa marcada no prompt (reorganização, resumo, questões, verificação, dica, chat, nome) ou ecoa o início do prompt.
+
+        Args:
+            prompt: texto do pedido.
+            imagens: ignorado.
+
+        Returns:
+            RespostaLinguagem com texto determinístico e tokens contados por palavras.
+        """
         marcador = "ATUAIS_JSON: "
         if marcador in prompt:
             linha = prompt.split(marcador, 1)[1].split("\n", 1)[0]
             return RespostaLinguagem(linha, len(prompt.split()), len(linha.split()))
-        if "TAREFA: QUESTOES" in prompt or "TAREFA: VERIFICAR" in prompt or "TAREFA: RESUMO" in prompt:
+        if any(f"TAREFA: {t}" in prompt for t in ("QUESTOES", "VERIFICAR", "RESUMO", "DICA", "CHAT", "NOME")):
             texto = _falso_geracao(prompt)
             return RespostaLinguagem(texto, len(prompt.split()), len(texto.split()))
         return RespostaLinguagem(f"[falso] {prompt[:80]}", len(prompt.split()), 5)
 
 
 def _falso_geracao(prompt: str) -> str:
-    """Respostas determinísticas e válidas para demonstrar resumo, questões e verificação sem provedor real (ADR 0026). O conteúdo é só um eco do material."""
+    """Respostas determinísticas e válidas para demonstrar resumo, questões e verificação sem provedor real. O conteúdo é só um eco do material.
+
+    Args:
+        prompt: prompt da tarefa, com o marcador `TAREFA: ...`.
+
+    Returns:
+        Texto (ou JSON) da resposta de demonstração da tarefa.
+    """
     import json
     import re
     import time
@@ -99,6 +164,14 @@ def _falso_geracao(prompt: str) -> str:
     eco = " ".join(trecho.group(1).split())[:160] if trecho else "conhecimento geral"
     if "TAREFA: RESUMO" in prompt:
         return f"[Resumo de demonstração, sem modelo real] {eco}"
+    if "TAREFA: NOME" in prompt:
+        primeiro = re.search(r"TÓPICOS DO ESTUDO:\n- (.*)", prompt)
+        return f"Estudo de demonstração: {primeiro.group(1)[:40]}" if primeiro else "Estudo de demonstração"
+    if "TAREFA: DICA" in prompt:
+        return f"[Dica de demonstração] Pense no que o material diz sobre: {eco[:80]}"
+    if "TAREFA: CHAT" in prompt:
+        pergunta = re.search(r"PERGUNTA: (.*?)\n\n", prompt, re.S)
+        return f"[Resposta de demonstração, sem modelo real] Sobre \"{(pergunta.group(1) if pergunta else '')[:80]}\": {eco}"
     if "TAREFA: VERIFICAR" in prompt:
         return json.dumps({"sustentada": True, "unica_correta": True, "ordens": ordens[:1], "motivo": "falso"})
     n = int(re.search(r"QUANTIDADE: (\d+)", prompt).group(1))

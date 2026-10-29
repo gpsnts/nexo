@@ -4,9 +4,14 @@ import { useDevolverFoco } from './foco'
 import Campo, { CampoUsuario } from './Campo'
 import { erroEmail, erroNome, erroObrigatorio, erroSenhaNova, focarPrimeiroInvalido, temErro, type Erros } from './validacao'
 
+/** Dados do perfil. */
 type Dados = { nome: string; email: string }
 
-/** Uma seção do perfil: formulário próprio, validação por campo, mensagem de erro ou sucesso e botão travado durante o envio. */
+/**
+ * Uma seção do perfil: formulário próprio, validação por campo, mensagem de erro ou sucesso e botão travado durante o envio.
+ * @param props id: âncora; titulo: título; aoEnviar: chamada ao backend (devolve a mensagem de sucesso); validar: valida antes de enviar; rotuloBotao: texto do botão; perigo: estilo de ação destrutiva; desabilitado: trava o botão; children: campos.
+ * @returns a seção.
+ */
 function Secao({ id, titulo, aoEnviar, validar, rotuloBotao, perigo, desabilitado, children }: {
   id: string; titulo: string; aoEnviar: () => Promise<string | void>; validar?: () => boolean; rotuloBotao: string; perigo?: boolean; desabilitado?: boolean; children: React.ReactNode
 }) {
@@ -14,6 +19,11 @@ function Secao({ id, titulo, aoEnviar, validar, rotuloBotao, perigo, desabilitad
   const [ok, setOk] = useState('')
   const [enviando, setEnviando] = useState(false)
   const botao = useDevolverFoco(enviando)
+  /**
+   * Valida e envia o formulário.
+   * @param e evento de envio do formulário.
+   * @returns promessa resolvida quando termina.
+   */
   async function enviar(e: FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setErro(''); setOk('')
@@ -40,6 +50,11 @@ function Secao({ id, titulo, aoEnviar, validar, rotuloBotao, perigo, desabilitad
   )
 }
 
+/**
+ * Seção de dados pessoais (nome).
+ * @param props nomeInicial: nome atual; aoSalvar: recebe o perfil atualizado.
+ * @returns a seção.
+ */
 export function DadosPessoais({ nomeInicial, aoSalvar }: { nomeInicial: string; aoSalvar: (d: Dados) => void }) {
   const [nome, setNome] = useState(nomeInicial)
   const [erros, setErros] = useState<Erros>({})
@@ -52,6 +67,11 @@ export function DadosPessoais({ nomeInicial, aoSalvar }: { nomeInicial: string; 
   )
 }
 
+/**
+ * Seção de troca de e-mail (pede a senha atual; o e-mail só muda após confirmar o link).
+ * @param props email: e-mail atual, para o gerenciador de senhas.
+ * @returns a seção.
+ */
 export function TrocaEmail({ email }: { email: string }) {
   const [novoEmail, setNovoEmail] = useState('')
   const [senha, setSenha] = useState('')
@@ -71,6 +91,11 @@ export function TrocaEmail({ email }: { email: string }) {
   )
 }
 
+/**
+ * Seção de troca de senha (derruba as outras sessões e renova o token deste dispositivo).
+ * @param props email: e-mail atual, para o gerenciador de senhas.
+ * @returns a seção.
+ */
 export function TrocaSenha({ email }: { email: string }) {
   const [atual, setAtual] = useState('')
   const [nova, setNova] = useState('')
@@ -91,6 +116,11 @@ export function TrocaSenha({ email }: { email: string }) {
   )
 }
 
+/**
+ * Seção de exclusão da conta (pede a senha e a palavra EXCLUIR).
+ * @param props email: e-mail atual; aoExcluir: chamado após a exclusão.
+ * @returns a seção.
+ */
 export function ExcluirConta({ email, aoExcluir }: { email: string; aoExcluir: () => void }) {
   const [senha, setSenha] = useState('')
   const [confirmacao, setConfirmacao] = useState('')

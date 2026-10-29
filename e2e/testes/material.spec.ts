@@ -65,7 +65,7 @@ test('51 páginas é recusado na hora, sem criar material', async ({ page }) => 
   await enviarMaterial(page, fixture('longo-51-paginas.pdf'))
   await expect(page.getByRole('alert')).toContainText('passa de 50 páginas')
   await page.getByRole('button', { name: 'Início' }).click()
-  await expect(page.getByText(/ainda não tem nenhum estudo/)).toBeVisible()
+  await expect(page.getByText(/Comece pelo seu primeiro estudo/)).toBeVisible()
 })
 
 test('PDF sem texto falha com o motivo e permite novo envio', async ({ page }) => {
@@ -74,11 +74,11 @@ test('PDF sem texto falha com o motivo e permite novo envio', async ({ page }) =
   await expect(page.getByRole('alert')).toContainText('não tem texto', { timeout: 45_000 })
   await page.getByRole('button', { name: 'Enviar novamente' }).click()
   await expect(page).toHaveURL(/\/novo-estudo/)
-  await enviarMaterial(page, fixture('escaneado.pdf')) // reenvio do mesmo arquivo que falhou é permitido (UC02 A4)
+  await enviarMaterial(page, fixture('escaneado.pdf')) // reenvio do mesmo arquivo que falhou é permitido
   await expect(page.getByRole('alert')).toContainText('não tem texto', { timeout: 45_000 })
 })
 
-test('tópico livre (UC03) é registrado sem material', async ({ page }) => {
+test('tópico livre é registrado sem material', async ({ page }) => {
   await criarContaEEntrar(page)
   await page.goto('/novo-estudo')
   await page.getByLabel('Tópico', { exact: true }).fill('Movimento Retilíneo Uniforme')

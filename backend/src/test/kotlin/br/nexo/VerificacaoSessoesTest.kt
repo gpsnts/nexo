@@ -12,7 +12,7 @@ private const val FIREFOX_LINUX = "Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gec
 private const val CHROME_WINDOWS = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
 private const val SAFARI_IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 
-/** ADR 0014: verificação de e-mail no cadastro. */
+/** Verificação de e-mail no cadastro. */
 class VerificacaoTest : BaseIntegracao() {
     private fun verificadoEm(email: String) = dono.queryForMap("SELECT email_verificado_em FROM usuario WHERE email = ?", email)["email_verificado_em"]
 
@@ -81,7 +81,7 @@ class VerificacaoTest : BaseIntegracao() {
     }
 }
 
-/** ADR 0015: lista de sessões ativas. */
+/** Lista de sessões ativas. */
 class SessoesTest : BaseIntegracao() {
     private fun lista(token: String) = chamar("GET", "/perfil/sessoes", token = token).corpo.toList()
     private fun token(r: Resposta) = r.corpo["token"].asString()

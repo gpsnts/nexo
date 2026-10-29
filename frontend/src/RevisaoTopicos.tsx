@@ -1,9 +1,14 @@
+import Carregando from './Esqueleto'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ErroApi } from './api'
 import { AVISO_IA, avisarUso, ajustar, criarNaLacuna, dividir, errosDeNome, excluir, faixasDe, igual, lacunas, novaChave, rotuloPaginas, unir, umSo, type Faixa, type Rascunho, type Topico, type Trecho } from './estudo'
 import { focarPrimeiroInvalido } from './validacao'
 
-/** Revisão da proposta (UC02 passo 6): edita tudo no navegador e grava de uma vez (o servidor aplica numa única transação). */
+/**
+ * Revisão da proposta: edita tudo no navegador e grava de uma vez (o servidor aplica numa única transação).
+ * @param props materialId: material; nomeArquivo: arquivo do material; aoAbrirTopico: abre um tópico já salvo.
+ * @returns a seção de revisão dos tópicos.
+ */
 export default function RevisaoTopicos({ materialId, nomeArquivo, aoAbrirTopico }: { materialId: string; nomeArquivo: string; aoAbrirTopico: (id: string) => void }) {
   const [salvo, setSalvo] = useState<Faixa[] | null>(null)
   const [faixas, setFaixas] = useState<Faixa[]>([])
@@ -28,19 +33,31 @@ export default function RevisaoTopicos({ materialId, nomeArquivo, aoAbrirTopico 
   // Sair da página com alterações não salvas: o navegador pergunta antes de descartar (Voltar e links internos não passam por aqui).
   useEffect(() => {
     if (!alterado) return
+    /**
+     * Pede ao navegador que confirme antes de sair com alterações não salvas.
+     * @param e evento beforeunload.
+     */
     const avisar = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
     window.addEventListener('beforeunload', avisar)
     return () => window.removeEventListener('beforeunload', avisar)
   }, [alterado])
 
   if (falha) return <div role="alert"><p className="erro">Não foi possível carregar os tópicos.</p><button type="button" onClick={() => { setFalha(false); carregar() }}>Tentar de novo</button></div>
-  if (!salvo) return <p className="sub" role="status">Carregando…</p>
+  if (!salvo) return <Carregando />
 
   // `paginas` tem um item por trecho; se não carregou, o último trecho usado é o melhor que se sabe
   const total = Math.max(paginas.length, faixas[faixas.length - 1]?.fim ?? 0)
   const fora = lacunas(faixas, total)
+  /**
+   * Troca as faixas em edição e limpa mensagens.
+   * @param novo novas faixas.
+   */
   const mudar = (novo: Faixa[]) => { setFaixas(novo); setErrosNome({}); setOk(''); setErro('') }
 
+  /**
+   * Valida os nomes e grava a divisão numa só chamada.
+   * @returns promessa resolvida quando termina.
+   */
   const confirmar = async () => {
     const e = errosDeNome(faixas)
     setErrosNome(e)
@@ -57,6 +74,10 @@ export default function RevisaoTopicos({ materialId, nomeArquivo, aoAbrirTopico 
   }
 
   // "Reorganizar com IA": o servidor devolve um RASCUNHO (nada é gravado); ele entra na tela como alteração não salva, para revisar e confirmar.
+  /**
+   * "Reorganizar com IA": o servidor devolve um RASCUNHO (nada é gravado); ele entra na tela como alteração não salva, para revisar e confirmar.
+   * @returns promessa resolvida quando termina.
+   */
   const reorganizarComIa = async () => {
     setPensando(true); setErro(''); setOk(''); setAvisoIa('')
     try {
@@ -74,8 +95,28 @@ export default function RevisaoTopicos({ materialId, nomeArquivo, aoAbrirTopico 
   }
 
   return (
-    <section ref={secao} aria-labelledby="titulo-revisao">
-      <h2 id="titulo-revisao">Tópicos do material</h2>
+    <>
+    {salvo && salvo.length > 0 && (
+      <section className="estudar" aria-labelledby="titulo-estudar">
+        <h2 id="titulo-estudar">Estudar</h2>
+        <p className="sub">Escolha um tópico para gerar resumo e questionário. {alterado ? 'Salve ou desfaça as alterações abaixo para continuar.' : ''}</p>
+        <ul className="cartoes">
+          {salvo.filter((f) => f.id).map((f) => (
+            <li key={f.id}>
+              <button type="button" className="cartao-topico" disabled={alterado} onClick={() => aoAbrirTopico(f.id!)} aria-label={`Estudar: ${f.nome}`}>
+                <strong>{f.nome}</strong>
+                <small className="sub">Trechos {f.inicio} a {f.fim}{f.bloqueado ? ' · já tem conteúdo' : ''}</small>
+                <span className="chamada">{f.bloqueado ? 'Abrir o tópico' : 'Gerar resumo e questões'}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+    <section ref={secao} aria-labelledby="titulo-revisao" className="editor">
+      {/* aberto na primeira revisão; recolhido quando já há conteúdo gerado (a divisão nem pode mais mudar nesses tópicos) */}
+      <details open={!salvo.some((f) => f.bloqueado)}>
+      <summary><h2 id="titulo-revisao">Tópicos do material</h2></summary>
       <p className="sub">
         O material foi dividido em {faixas.length} {faixas.length === 1 ? 'tópico' : 'tópicos'} ({total} trechos, os pedaços numerados do texto). Renomeie, una, divida, ajuste onde cada tópico termina ou tire do estudo o que não interessa (capa, sumário, referências). Nada é salvo antes de confirmar.
       </p>
@@ -118,16 +159,24 @@ export default function RevisaoTopicos({ materialId, nomeArquivo, aoAbrirTopico 
         <button type="button" className="secundario" onClick={() => { mudar(salvo); setAvisoIa('') }} disabled={!alterado || salvando}>Desfazer alterações</button>
         <button type="button" onClick={confirmar} disabled={!alterado || salvando}>{salvando ? 'Aguarde…' : 'Confirmar tópicos'}</button>
       </div>
+      </details>
     </section>
+    </>
   )
 }
 
+/**
+ * Um tópico da lista: nome, limites, prévia dos trechos e ações de unir, dividir, ajustar e excluir.
+ * @param props f: faixa do tópico; i: posição; ultimo: se é o último; proximo: faixa seguinte; erro: erro do nome; materialId: material; paginas: página de cada trecho; podeEstudar: se já pode abrir; aoEstudar: abre o tópico; aoRenomear, aoAjustar, aoUnir, aoDividir, aoExcluir: ações de edição; unicoTopico: se é o único tópico.
+ * @returns os controles do tópico.
+ */
 function TopicoLinha({ f, i, ultimo, proximo, erro, materialId, paginas, podeEstudar, aoEstudar, aoRenomear, aoAjustar, aoUnir, aoDividir, aoExcluir, unicoTopico }: {
   f: Faixa; i: number; ultimo: boolean; proximo?: Faixa; erro?: string; materialId: string; paginas: (number | null)[]; podeEstudar: boolean; aoEstudar: () => void
   aoRenomear: (n: string) => void; aoAjustar: (fim: number) => void; aoUnir: () => void; aoDividir: (apos: number) => void; aoExcluir: () => void; unicoTopico: boolean
 }) {
   const [dividindo, setDividindo] = useState(false)
-  const [apos, setApos] = useState(f.inicio)
+  const [apos, setApos] = useState(String(f.inicio))   // texto: o campo precisa aceitar valores incompletos enquanto se digita
+  const [textoFim, setTextoFim] = useState<string | null>(null)
   const [trechos, setTrechos] = useState<Trecho[] | null>(null)
   const [aberto, setAberto] = useState(false)
   const podeDividir = f.fim > f.inicio && !f.bloqueado
@@ -135,6 +184,10 @@ function TopicoLinha({ f, i, ultimo, proximo, erro, materialId, paginas, podeEst
   const fronteiraTravada = f.bloqueado || (colado && !!proximo?.bloqueado)
   const n = `${i + 1}`
   const rotuloPag = rotuloPaginas(paginas, f.inicio, f.fim)
+  /**
+   * Abre ou fecha a prévia dos trechos, carregando-a na primeira abertura.
+   * @param abriu novo estado.
+   */
   const ver = (abriu: boolean) => {
     setAberto(abriu)
     if (abriu && !trechos) api<Trecho[]>(`/materiais/${materialId}/trechos?de=${f.inicio}&ate=${f.fim}`).then(setTrechos).catch(() => setTrechos([]))
@@ -149,31 +202,40 @@ function TopicoLinha({ f, i, ultimo, proximo, erro, materialId, paginas, podeEst
       <p className="faixa">
         Trechos {f.inicio} a{' '}
         {!ultimo && proximo
-          ? <input type="number" inputMode="numeric" min={f.inicio} max={colado ? proximo.fim - 1 : proximo.inicio - 1} value={f.fim} disabled={fronteiraTravada} aria-label={`Último trecho do tópico ${n}`}
-              onChange={(e) => { const v = Number(e.target.value); if (Number.isInteger(v)) aoAjustar(v) }} />
+          ? <input type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" className="campo-trecho" value={textoFim ?? String(f.fim)} disabled={fronteiraTravada}
+              aria-label={`Último trecho do tópico ${n}`} aria-invalid={textoFim !== null && Number(textoFim) !== f.fim ? true : undefined} aria-describedby={`dica-fim-${n}`}
+              onFocus={(e) => e.currentTarget.select()}
+              onChange={(e) => {
+                const digitos = e.target.value.replace(/\D/g, '').slice(0, 6)   // só números; vazio e valores fora do limite ficam como rascunho até sair do campo
+                setTextoFim(digitos)
+                if (digitos) aoAjustar(Number(digitos))
+              }}
+              onBlur={() => setTextoFim(null)} />
           : f.fim}
         {rotuloPag && <span className="sub"> · {rotuloPag}</span>}
       </p>
+      {textoFim !== null && Number(textoFim) !== f.fim && proximo && <p id={`dica-fim-${n}`} className="erro dica-fim" role="status">O último trecho deste tópico vai de {f.inicio} a {colado ? proximo.fim - 1 : proximo.inicio - 1}.</p>}
       {f.bloqueado && <p className="sub">Este tópico já tem resumo ou questões: só o nome pode mudar.</p>}
       <div className="acoes-linha">
         <button type="button" className="secundario" onClick={aoEstudar} disabled={!podeEstudar} aria-label={`Estudar o tópico ${n}: resumo e questões`}>Estudar</button>
         {!ultimo && <button type="button" className="secundario" onClick={aoUnir} disabled={fronteiraTravada || !colado} aria-label={`Unir com o próximo (tópico ${n})`}>Unir com o próximo</button>}
         <button type="button" className="secundario" onClick={aoExcluir} disabled={f.bloqueado || unicoTopico} aria-label={`Tirar o tópico ${n} do estudo`}>Tirar do estudo</button>
-        {podeDividir && !dividindo && <button type="button" className="secundario" onClick={() => { setApos(f.inicio); setDividindo(true) }} aria-label={`Dividir (tópico ${n})`}>Dividir</button>}
+        {podeDividir && !dividindo && <button type="button" className="secundario" onClick={() => { setApos(String(f.inicio)); setDividindo(true) }} aria-label={`Dividir (tópico ${n})`}>Dividir</button>}
       </div>
       {dividindo && (
         <div className="campo">
           <label htmlFor={`apos-${f.chave}`}>Dividir depois do trecho</label>
-          <input id={`apos-${f.chave}`} type="number" inputMode="numeric" min={f.inicio} max={f.fim - 1} value={apos} onChange={(e) => setApos(Number(e.target.value))} />
+          <input id={`apos-${f.chave}`} type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" value={apos} onFocus={(e) => e.currentTarget.select()} onChange={(e) => setApos(e.target.value.replace(/\D/g, '').slice(0, 6))} aria-describedby={`dica-apos-${f.chave}`} />
+          <small id={`dica-apos-${f.chave}`}>Entre {f.inicio} e {f.fim - 1}.</small>
           <div className="acoes-linha">
-            <button type="button" onClick={() => { aoDividir(apos); setDividindo(false) }} disabled={!Number.isInteger(apos) || apos < f.inicio || apos >= f.fim}>Dividir aqui</button>
+            <button type="button" onClick={() => { aoDividir(Number(apos)); setDividindo(false) }} disabled={!apos || Number(apos) < f.inicio || Number(apos) >= f.fim}>Dividir aqui</button>
             <button type="button" className="secundario" onClick={() => setDividindo(false)}>Cancelar</button>
           </div>
         </div>
       )}
       <details onToggle={(e) => ver((e.currentTarget as HTMLDetailsElement).open)}>
         <summary>Ver trechos do tópico {n}</summary>
-        {!aberto ? null : trechos === null ? <p className="sub" role="status">Carregando…</p> : (
+        {!aberto ? null : trechos === null ? <Carregando /> : (
           <ol className="trechos" start={f.inicio}>
             {trechos.map((t) => <li key={t.ordem}>{t.numeroPagina ? <small>pág. {t.numeroPagina} · </small> : null}{t.previa}</li>)}
           </ol>

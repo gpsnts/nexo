@@ -6,6 +6,8 @@ import { criarContaEEntrar, enviarMaterial, fixture } from '../ajudas'
 test.use({ bypassCSP: true })
 
 const auditar = async (page: Page, onde: string) => {
+  // transições de cor (ao trocar o tema ou habilitar um botão) fariam o axe medir contraste no meio da animação: falso positivo
+  await page.addStyleTag({ content: '*, *::before, *::after { transition: none !important; animation: none !important; }' })
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'best-practice']).analyze()
   const resumo = r.violations.map((v) => `${v.id} (${v.impact}, ${v.nodes.length}x): ${v.nodes[0].html.slice(0, 100)}`)
   expect(resumo, `${onde}:\n${resumo.join('\n')}`).toEqual([])

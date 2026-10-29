@@ -14,16 +14,41 @@ import java.util.concurrent.TimeUnit
 
 /** Onde ficam os arquivos enviados. As chaves têm a forma `<usuario_id>/<material_id>` (nunca o nome original: sem path traversal). */
 interface Armazenamento {
+    /**
+     * Grava o arquivo de forma atômica.
+     * @param chave `<usuario_id>/<material_id>`.
+     * @param dados conteúdo do arquivo.
+     */
     fun salvar(chave: String, dados: ByteArray)
+    /**
+     * Lê um arquivo.
+     * @param chave chave do arquivo.
+     * @return o conteúdo.
+     */
     fun ler(chave: String): ByteArray
+    /**
+     * Remove um arquivo, se existir.
+     * @param chave chave do arquivo.
+     */
     fun remover(chave: String)
+    /**
+     * Remove uma pasta inteira (exclusão da conta).
+     * @param prefixo prefixo da chave (ex.: id do usuário).
+     */
     fun removerPasta(prefixo: String)
 }
 
+/** Armazenamento em disco, no diretório `nexo.material.diretorio`. */
 @Component
 class ArmazenamentoLocal(props: NexoProperties) : Armazenamento {
     private val raiz: Path = Path.of(props.material.diretorio).toAbsolutePath().normalize()
 
+    /**
+     * Resolve a chave num caminho dentro da raiz.
+     * @param chave chave do arquivo.
+     * @return o caminho normalizado.
+     * @throws IllegalArgumentException se a chave sair da raiz (path traversal).
+     */
     private fun caminho(chave: String): Path {
         val c = raiz.resolve(chave).normalize()
         require(c.startsWith(raiz) && c != raiz) { "Chave fora do armazenamento" }
@@ -54,9 +79,9 @@ class ArmazenamentoLocal(props: NexoProperties) : Armazenamento {
 }
 
 /**
- * Remoção de arquivos só depois do commit (regras 6 e 7): se a transação desfizer, o arquivo continua. Falhou? Tenta de novo nos prazos de
+ * Remoção de arquivos só depois do commit: se a transação desfizer, o arquivo continua. Falhou? Tenta de novo nos prazos de
  * `nexo.material.esperas-remocao` e, esgotados, registra erro com a chave.
- * shortcut: as novas tentativas vivem na memória; um arquivo cuja remoção esgotar as tentativas (ou perdido num reinício) vira órfão. Sem varredura, ADR 0024.
+ * as novas tentativas vivem na memória; um arquivo cuja remoção esgotar as tentativas (ou perdido num reinício) vira órfão. Sem varredura.
  */
 @Component
 class RemocaoArquivos(private val armazenamento: Armazenamento, props: NexoProperties) {
@@ -64,7 +89,11 @@ class RemocaoArquivos(private val armazenamento: Armazenamento, props: NexoPrope
     private val esperas = props.material.esperasRemocao
     private val agenda = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "remocao-arquivos").apply { isDaemon = true } }
 
-    /** [chaves] são arquivos; [pastas] são prefixos inteiros (exclusão da conta). Fora de transação, apaga na hora. */
+    /**
+     * Agenda a remoção para depois do commit. [chaves] são arquivos; [pastas] são prefixos inteiros (exclusão da conta). Fora de transação, apaga na hora.
+     * @param chaves arquivos a remover.
+     * @param pastas prefixos de pastas a remover.
+     */
     fun depoisDoCommit(chaves: List<String> = emptyList(), pastas: List<String> = emptyList()) {
         val acao = { chaves.forEach(armazenamento::remover); pastas.forEach(armazenamento::removerPasta) }
         if (!TransactionSynchronizationManager.isSynchronizationActive()) return tentar(acao, 0, chaves + pastas)
@@ -73,6 +102,12 @@ class RemocaoArquivos(private val armazenamento: Armazenamento, props: NexoPrope
         })
     }
 
+    /**
+     * Executa a remoção e, se falhar, tenta de novo nos prazos configurados.
+     * @param acao remoção a executar.
+     * @param tentativa número da tentativa corrente (0 = primeira).
+     * @param alvo chaves e pastas, para o log.
+     */
     private fun tentar(acao: () -> Unit, tentativa: Int, alvo: List<String>) {
         try {
             acao()

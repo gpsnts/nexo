@@ -17,11 +17,11 @@ spring:
 
 management.endpoints.web.exposure.include: health
 
-server.forward-headers-strategy: native  # IP real do cliente vem do X-Forwarded-For do nginx (ADR 0012)
+server.forward-headers-strategy: native  # IP real do cliente vem do X-Forwarded-For do nginx
 
-# Parâmetros de negócio (CLAUDE.md). Sobrescreva por variável de ambiente (ex.: NEXO_LIMITE_OPERACOES_POR_HORA).
+# Parâmetros de negócio. Sobrescreva por variável de ambiente (ex.: NEXO_LIMITE_OPERACOES_POR_HORA).
 nexo:
-  ambiente: desenvolvimento              # desenvolvimento | producao: em producao a aplicacao recusa subir com configuracao insegura (ADR 0017)
+  ambiente: desenvolvimento              # desenvolvimento | producao: em producao a aplicacao recusa subir com configuracao insegura
   formatos-aceitos: [pdf, docx, txt]
   tamanho-maximo-mb: 20
   paginas-maximas: 50
@@ -32,8 +32,10 @@ nexo:
   fuso: America/Sao_Paulo
   limiar-similaridade-repeticao: 0.90
   figuras-por-material: 30
-  limite-gasto-usd: 10      # confirmado (ADR 0029): US$ 10 por 30 dias
-  janela-gasto: P30D
+  cota:                      # A tela mostra só a porcentagem usada e quando a cota renova; o dólar fica no registro interno
+    creditos-por-semana: 300 # semana de segunda a domingo; calibrar com o modelo real e a quantidade de usuários
+    usd-por-credito: 0.0001  # 1 crédito = US$ 0,0001 de custo estimado (gerar 5 questões com verificação ≈ 5 créditos)
+    minimo-por-operacao: 1
   revisao:
     repeticoes-inicial: 0
     intervalo-inicial: 1
@@ -43,6 +45,18 @@ nexo:
     fator-acerto: 0.10
     fator-erro: 0.20
     intervalo-maximo: 365
+  chat:
+    mensagem-max-caracteres: 2000
+    historico-enviado: 10     # falas anteriores que acompanham cada pergunta (custo de tokens)
+    mensagens-por-topico: 200 # ao chegar, o usuário limpa a conversa
+    resposta-max-caracteres: 6000      # a resposta do tutor é cortada ao gravar
+    fala-enviada-max-caracteres: 3500  # cada fala do histórico vai cortada (o serviço Python recusa mais de 4000)
+  painel:
+    semanas: 8
+    semanas-maximo: 26
+    minimo-respostas: 3     # tópico com menos respostas na janela não entra na lista dos mais fracos
+    fracos: 5
+    topicos-recentes: 5     # tópicos estudados há pouco que a revisão oferece para gerar questões novas, mesmo sem nada vencido
   processamento:
     url: http://localhost:8000
     # segredo vem de NEXO_PROCESSAMENTO_SEGREDO (o mesmo do serviço Python); sem valor padrão de propósito
@@ -52,23 +66,23 @@ nexo:
     saude-timeout: PT3S                   # consulta dos nomes dos modelos (/saude): uma tentativa só, para falhar rápido com o serviço fora do ar
     cache-modelos: PT1M                   # os nomes dos modelos mudam só com reinício do serviço: não consultar a cada operação
   material:
-    diretorio: ./dados/arquivos           # volume do compose em /dados/arquivos (ADR 0024)
+    diretorio: ./dados/arquivos           # volume do compose em /dados/arquivos
     assincrono: true                      # indexação em executor próprio; só os testes rodam na hora
     threads: 2
     fila: 50
     simultaneos-por-usuario: 2            # materiais pendentes ou processando por usuário
     envios-simultaneos: 4                 # POST /materiais em curso no servidor todo (cada um segura ~60 MB de arquivo em memória)
-    caracteres-por-pagina: 3000           # estimativa de páginas de DOCX e TXT (ADR 0024)
+    caracteres-por-pagina: 3000           # estimativa de páginas de DOCX e TXT
     lote-embeddings: 64
     pulso-maximo: PT5M                    # sem progresso por este tempo e sem tarefa viva: material vira falhou/interrompido
-    trechos-minimos-por-topico: 1         # divisão por estrutura: seção menor que isto se junta à vizinha (1 = cada título vira um tópico, ADR 0043)
+    trechos-minimos-por-topico: 1         # divisão por estrutura: seção menor que isto se junta à vizinha (1 = cada título vira um tópico)
     trechos-por-topico-plano-b: 15        # divisão em blocos iguais quando o modelo não propõe tópicos válidos
     max-topicos: 100
     esperas-remocao: [PT1S, PT10S, PT1M]  # novas tentativas de apagar arquivo depois do commit
     precos-embedding-usd-por-milhao:      # por nome do modelo; o provedor falso custa 0
       text-embedding-3-small: 0.02
     preco-embedding-usd-por-milhao: ${PRECO_EMBEDDING_USD_POR_MILHAO:}   # para outro modelo de embedding (ex.: o 3-large): valor do painel do provedor; sem preço o modelo é recusado
-  geracao:                                # resumo, questões e verificação de fidelidade (F3, ADR 0034)
+  geracao:                                # resumo, questões e verificação de fidelidade
     assincrono: true                      # executor próprio; só os testes rodam na hora
     threads: 2
     fila: 20
@@ -98,9 +112,9 @@ nexo:
     caminho-cookie: /api/auth             # caminho visto pelo navegador (o proxy remove /api)
     dias-conta-nao-verificada: 30         # conta que nunca confirmou o e-mail é apagada depois disto
     fila-segundo-plano: 200               # tarefas pendentes; acima disso o trabalho é descartado com log de erro
-    assincrono: true                      # e-mails e trabalho de recuperação de senha em segundo plano (ADR 0012)
+    assincrono: true                      # e-mails e trabalho de recuperação de senha em segundo plano
     limpeza-cron: "0 30 3 * * *"           # apaga sessões e tokens vencidos (fuso: nexo.fuso)
-  limite-publico:                         # por IP, nas rotas públicas que custam um hash Argon2 (ADR 0012)
+  limite-publico:                         # por IP, nas rotas públicas que custam um hash Argon2
     requisicoes: 20
     janela: PT1M
   seguranca:

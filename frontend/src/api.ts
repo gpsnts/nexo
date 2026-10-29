@@ -1,3 +1,4 @@
+/** Erro de uma chamada à API, com o status HTTP e os campos do corpo de erro do backend. */
 export class ErroApi extends Error {
   status: number
   codigo?: string
@@ -12,15 +13,23 @@ export class ErroApi extends Error {
   }
 }
 
+/** Sessão devolvida no login e no refresh: token de acesso e nome do usuário. */
 export type Sessao = { token: string; nome: string }
 
-// Token de acesso só em memória (ADR 0008). O refresh token vive em cookie HttpOnly, que o JavaScript não lê.
+// Token de acesso só em memória. O refresh token vive em cookie HttpOnly, que o JavaScript não lê.
 let token: string | null = null
+/**
+ * Guarda o token de acesso em memória (nunca em storage).
+ * @param t token, ou nulo para limpar.
+ */
 export const definirToken = (t: string | null) => { token = t }
 
 let renovando: Promise<Sessao> | null = null
 
-/** Troca o cookie de refresh por um novo token de acesso. Chamadas simultâneas compartilham uma só renovação (o refresh é de uso único). */
+/**
+ * Troca o cookie de refresh por um novo token de acesso. Chamadas simultâneas compartilham uma só renovação (o refresh é de uso único).
+ * @returns a sessão renovada.
+ */
 export function renovarSessao(): Promise<Sessao> {
   renovando ??= api<Sessao>('/auth/refresh', { metodo: 'POST' })
     .then((s) => { token = s.token; return s })
@@ -28,6 +37,14 @@ export function renovarSessao(): Promise<Sessao> {
   return renovando
 }
 
+/**
+ * Faz a requisição com o token de acesso.
+ * @param caminho caminho da API, sem o prefixo `/api`.
+ * @param metodo método HTTP.
+ * @param corpo objeto enviado como JSON, se houver.
+ * @param formulario corpo multipart, se houver.
+ * @returns a resposta HTTP.
+ */
 async function enviar(caminho: string, metodo: string, corpo: unknown, formulario?: FormData) {
   return fetch(`/api${caminho}`, {
     method: metodo,
@@ -40,7 +57,13 @@ async function enviar(caminho: string, metodo: string, corpo: unknown, formulari
   })
 }
 
-/** `formulario` envia multipart (upload de material) com o mesmo tratamento de 401 e de erros. */
+/**
+ * Chama a API. `formulario` envia multipart (upload de material) com o mesmo tratamento de 401 e de erros.
+ * @param caminho caminho da API, sem o prefixo `/api`.
+ * @param opcoes método, corpo JSON ou formulário.
+ * @returns o corpo JSON da resposta (nulo em 204).
+ * @throws ErroApi se a resposta não for 2xx.
+ */
 export async function api<T>(caminho: string, opcoes: { metodo?: string; corpo?: unknown; formulario?: FormData } = {}): Promise<T> {
   const metodo = opcoes.metodo ?? (opcoes.corpo || opcoes.formulario ? 'POST' : 'GET')
   let r = await enviar(caminho, metodo, opcoes.corpo, opcoes.formulario)
@@ -62,4 +85,8 @@ export async function api<T>(caminho: string, opcoes: { metodo?: string; corpo?:
 }
 
 let aoPerderSessao: () => void = () => {}
+/**
+ * Registra o que fazer quando a sessão não puder ser renovada.
+ * @param f função chamada ao perder a sessão.
+ */
 export const quandoPerderSessao = (f: () => void) => { aoPerderSessao = f }

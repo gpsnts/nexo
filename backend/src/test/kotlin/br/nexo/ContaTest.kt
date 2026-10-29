@@ -8,7 +8,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** F1b: bloqueio de login, refresh token, recuperação de senha e perfil. */
+/** bloqueio de login, refresh token, recuperação de senha e perfil. */
 class ContaTest : BaseIntegracao() {
     private val senha = "senha-forte-1"
 

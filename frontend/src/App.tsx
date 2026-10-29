@@ -1,28 +1,49 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { api, definirToken, quandoPerderSessao, renovarSessao, type Sessao } from './api'
 import Entrar, { type Modo } from './Entrar'
+import Desempenho from './Desempenho'
 import Inicio from './Inicio'
 import LinkDeEmail from './LinkDeEmail'
 import Material from './Material'
 import NaoEncontrada from './NaoEncontrada'
 import NovoEstudo from './NovoEstudo'
 import Perfil from './Perfil'
+import Revisao from './Revisao'
 import Topico from './Topico'
-import { ehEntrada, ehInterna, ehLink, idDoMaterial, idDoTopico, proximoDaUrl, rotaDaUrl, urlDe, urlMaterial, urlTopico, type NomeRota } from './rotas'
+import { EVENTO_ROTA, ehEntrada, ehInterna, ehLink, idDoMaterial, idDoTopico, proximoDaUrl, rotaDaUrl, urlDe, urlMaterial, urlTopico, type NomeRota } from './rotas'
 import { chaveSessao, marcarSessao, talvezTenhaSessao } from './sessaoLocal'
 
+/** Rota que se navega por nome (as com parâmetro usam funções próprias). */
 type Destino = Exclude<NomeRota, 'desconhecida' | 'material' | 'topico'>
+/**
+ * Modo da tela de acesso de uma rota.
+ * @param r rota.
+ * @returns criar, esqueci ou entrar.
+ */
 const modoDaRota = (r: NomeRota): Modo => (r === 'criar' ? 'criar' : r === 'recuperar' ? 'esqueci' : 'entrar')
+/**
+ * Rota de um modo da tela de acesso.
+ * @param m modo.
+ * @returns a rota correspondente.
+ */
 const rotaDoModo = (m: Modo): Destino => (m === 'criar' ? 'criar' : m === 'esqueci' ? 'recuperar' : 'entrar')
 
 // A URL é a fonte da verdade da tela: o React a lê como um armazenamento externo (Voltar/Avançar e navegação própria avisam).
-const EVENTO_ROTA = 'nexo:rota'
+/**
+ * A URL é a fonte da verdade da tela: o React a lê como um armazenamento externo (Voltar/Avançar e navegação própria avisam).
+ * @param aviso função a chamar quando a URL muda.
+ * @returns função que cancela a assinatura.
+ */
 const assinarRota = (aviso: () => void) => {
   window.addEventListener('popstate', aviso)
   window.addEventListener(EVENTO_ROTA, aviso)
   return () => { window.removeEventListener('popstate', aviso); window.removeEventListener(EVENTO_ROTA, aviso) }
 }
 
+/**
+ * Raiz do frontend: decide a tela pela URL e pela sessão, renova a sessão ao abrir, sincroniza o login entre abas e redireciona rotas protegidas.
+ * @returns a tela da rota corrente.
+ */
 export default function App() {
   const rota = useSyncExternalStore(assinarRota, () => rotaDaUrl(), () => 'inicio' as NomeRota)
   // O token do link do e-mail é lido uma vez e sai da URL (histórico, favoritos e capturas de tela não o guardam).
@@ -34,7 +55,7 @@ export default function App() {
   const logado = useRef(false)
   useEffect(() => { logado.current = sessao !== null }, [sessao]) // o listener de storage lê o valor mais recente por aqui
 
-  // Navegação com histórico (ADR 0018): cada tela tem endereço; Voltar/Avançar funcionam.
+  // Navegação com histórico: cada tela tem endereço; Voltar/Avançar funcionam.
   const navegar = useCallback((nome: Destino, opcoes: { substituir?: boolean; proximo?: 'inicio' | 'perfil' } = {}) => {
     window.history[opcoes.substituir ? 'replaceState' : 'pushState'](null, '', urlDe(nome, opcoes.proximo))
     window.dispatchEvent(new Event(EVENTO_ROTA))
@@ -72,6 +93,11 @@ export default function App() {
 
   // Várias abas: sair numa derruba as outras; entrar numa abre a sessão nas que estão no login.
   useEffect(() => {
+    /**
+     * Sincroniza o login entre abas: sair numa derruba as outras; entrar numa abre a sessão nas que estão no login.
+     * @param e evento de storage.
+   * @returns nada.
+     */
     const aoMudarArmazenamento = (e: StorageEvent) => {
       if (e.key !== chaveSessao) return
       if (e.newValue === null && logado.current) { definirToken(null); setSessao(null); setAviso('Você saiu em outra aba.') }
@@ -81,7 +107,13 @@ export default function App() {
     return () => window.removeEventListener('storage', aoMudarArmazenamento)
   }, [entrar])
 
+  /** Encerra a sessão no backend e neste navegador. */
   const encerrar = () => { api('/auth/logout', { metodo: 'POST' }).catch(() => {}); sair() }
+  /**
+   * Troca o modo da tela de acesso, preservando o destino pós-login.
+   * @param m modo escolhido.
+   * @returns nada.
+   */
   const mudarModo = (m: Modo) => navegar(rotaDoModo(m), { proximo: proximoDaUrl() })
 
   if (rota === 'desconhecida') return <NaoEncontrada logado={sessao !== null} aoVoltar={() => navegar(sessao ? 'inicio' : 'entrar')} />
@@ -93,6 +125,8 @@ export default function App() {
   const comum = { aoIrInicio: () => navegar('inicio'), aoIrPerfil: () => navegar('perfil'), aoSair: encerrar }
   if (rota === 'perfil')
     return <Perfil nome={sessao.nome} aoIrInicio={comum.aoIrInicio} aoSair={encerrar} aoExcluir={sair} aoAtualizarNome={(nome) => setSessao({ nome })} />
+  if (rota === 'revisar') return <Revisao {...comum} />
+  if (rota === 'desempenho') return <Desempenho {...comum} aoAbrirTopico={abrirTopico} />
   if (rota === 'novo') return <NovoEstudo {...comum} aoAbrirMaterial={abrirMaterial} aoAbrirTopico={abrirTopico} />
   if (rota === 'material')
     return <Material key={idDoMaterial()} id={idDoMaterial()!} {...comum} aoNovoEnvio={() => navegar('novo')} aoAbrirTopico={abrirTopico} />

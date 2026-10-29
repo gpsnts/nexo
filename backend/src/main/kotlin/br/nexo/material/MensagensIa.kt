@@ -4,6 +4,11 @@ package br.nexo.material
 object MensagensIa {
     const val GENERICA = "O modelo de linguagem não respondeu. Tente novamente em instantes."
 
+    /**
+     * Traduz o código da falha do serviço de IA.
+     * @param codigo código do provedor, ou nulo.
+     * @return mensagem clara para o usuário (genérica se o código for desconhecido).
+     */
     fun deCodigo(codigo: String?): String = when (codigo) {
         "limite_provedor" -> "O provedor de IA atingiu o limite de requisições da conta (comum em plano gratuito). Aguarde cerca de um minuto e tente de novo."
         "sem_credito" -> "A conta do provedor de IA está sem crédito ou sem cota. Confira o plano e o faturamento no site do provedor; um plano gratuito pode não incluir uso da API."

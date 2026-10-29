@@ -23,6 +23,14 @@ class SemTexto(Exception):
 
 @dataclass(frozen=True)
 class Bloco:
+    """Pedaço de texto de um documento: um parágrafo, uma linha de tabela ou um título.
+
+    Attributes:
+        texto: conteúdo do bloco.
+        pagina: página do PDF onde o bloco está (nulo em DOCX e TXT).
+        titulo: True se o bloco é um título.
+        nivel: importância do título (1 = mais importante); só vale quando `titulo` é True.
+    """
     texto: str
     pagina: int | None = None
     titulo: bool = False
@@ -31,12 +39,24 @@ class Bloco:
 
 @dataclass(frozen=True)
 class Documento:
+    """Resultado da extração: o texto de um arquivo, em blocos, na ordem do documento.
+
+    Attributes:
+        tipo: formato detectado pelo conteúdo (`pdf`, `docx` ou `txt`).
+        paginas: número real de páginas no PDF; nulo nos formatos sem paginação.
+        blocos: os blocos de texto, em ordem.
+    """
     tipo: str  # pdf | docx | txt
     paginas: int | None  # real no PDF; nulo nos formatos sem paginação
     blocos: list[Bloco]
 
     @property
     def caracteres(self) -> int:
+        """Total de caracteres de texto do documento.
+
+        Returns:
+            A soma dos tamanhos dos textos de todos os blocos.
+        """
         return sum(len(b.texto) for b in self.blocos)
 
 
@@ -46,6 +66,19 @@ TEXTO_MINIMO = 20  # abaixo disso o arquivo é tratado como sem texto
 
 
 def detectar(dados: bytes) -> str:
+    """Decide o formato do arquivo pelo conteúdo, nunca pela extensão.
+
+    Um DOCX é um zip com `word/document.xml`; um TXT que começa com "PK" continua sendo texto. Confere também o tamanho descompactado do DOCX (proteção contra zip bomb).
+
+    Args:
+        dados: bytes do arquivo enviado.
+
+    Returns:
+        `"pdf"`, `"docx"` ou `"txt"`.
+
+    Raises:
+        FormatoInvalido: zip que não é DOCX, DOCX descompactado grande demais ou conteúdo binário.
+    """
     if dados.startswith(b"%PDF-"):
         return "pdf"
     if dados[:4] in (b"PK\x03\x04", b"PK\x05\x06"):  # assinatura completa: um TXT que começa com "PK" continua sendo texto
@@ -64,7 +97,19 @@ def detectar(dados: bytes) -> str:
 
 
 def contar_paginas(dados: bytes) -> tuple[str, int | None, int | None]:
-    """(tipo, páginas reais do PDF, caracteres de DOCX/TXT). O backend estima as páginas de DOCX/TXT a partir dos caracteres."""
+    """Mede o arquivo sem montar o documento inteiro, para o backend validar o limite de páginas antes de indexar.
+
+    O backend estima as páginas de DOCX e TXT a partir dos caracteres.
+
+    Args:
+        dados: bytes do arquivo enviado.
+
+    Returns:
+        Tupla (tipo, páginas reais do PDF ou None, caracteres de DOCX/TXT ou None).
+
+    Raises:
+        FormatoInvalido: arquivo ilegível ou de formato não aceito.
+    """
     tipo = detectar(dados)
     if tipo == "pdf":
         try:
@@ -80,6 +125,18 @@ def contar_paginas(dados: bytes) -> tuple[str, int | None, int | None]:
 
 
 def extrair(dados: bytes) -> Documento:
+    """Extrai o texto do arquivo em blocos, na ordem do documento.
+
+    Args:
+        dados: bytes do arquivo enviado.
+
+    Returns:
+        O documento com tipo, páginas e blocos.
+
+    Raises:
+        FormatoInvalido: arquivo corrompido, de formato não aceito ou grande demais.
+        SemTexto: arquivo válido, mas com menos de `TEXTO_MINIMO` caracteres (ex.: PDF escaneado).
+    """
     tipo = detectar(dados)
     try:
         doc = {"pdf": _pdf, "docx": _docx, "txt": _txt}[tipo](dados)
@@ -93,6 +150,14 @@ def extrair(dados: bytes) -> Documento:
 
 
 def _txt(dados: bytes) -> Documento:
+    """Lê um TXT: decodifica em UTF-8 (ou cp1252 se falhar) e separa os parágrafos por linha em branco.
+
+    Args:
+        dados: bytes do arquivo.
+
+    Returns:
+        Documento do tipo `txt`, sem páginas, com um bloco por parágrafo.
+    """
     try:
         texto = dados.decode("utf-8-sig")
     except UnicodeDecodeError:
@@ -102,7 +167,16 @@ def _txt(dados: bytes) -> Documento:
 
 
 def _nivel_do_estilo(nome: str | None) -> int | None:
-    """"Heading 2" / "Título 2" -> 2; "Title" / "Título" sem número -> 1; outro estilo -> None (não é título)."""
+    """Converte o nome de um estilo de parágrafo do Word em nível de título.
+
+    "Heading 2" ou "Título 2" valem 2; "Title" ou "Título" sem número valem 1; qualquer outro estilo não é título.
+
+    Args:
+        nome: nome do estilo do parágrafo (pode ser nulo).
+
+    Returns:
+        O nível (de 1 a 9) ou None se o estilo não é de título.
+    """
     m = re.match(r"^(heading|t[ií]tulo|title)\s*(\d+)?$", (nome or "").strip().lower())
     if not m:
         return None
@@ -110,8 +184,16 @@ def _nivel_do_estilo(nome: str | None) -> int | None:
 
 
 def _docx(dados: bytes) -> Documento:
-    """Parágrafos e tabelas na ordem do documento. A tabela entra como texto simples (uma linha por linha da tabela, células separadas
-    por " | "); a conversão para Markdown e o tipo `tabela` ficam para a F6c."""
+    """Lê um DOCX: parágrafos e tabelas na ordem do documento.
+
+    A tabela entra como texto simples (uma linha por linha da tabela, células separadas por " | "); a conversão para Markdown e o tipo `tabela` ficam para depois. Célula mesclada conta uma vez.
+
+    Args:
+        dados: bytes do arquivo.
+
+    Returns:
+        Documento do tipo `docx`, sem páginas, com os títulos marcados pelo estilo do parágrafo.
+    """
     doc = Document(io.BytesIO(dados))
     blocos = []
     for el in doc.element.body.iterchildren():
@@ -135,6 +217,19 @@ def _docx(dados: bytes) -> Documento:
 
 
 def _pdf(dados: bytes) -> Documento:
+    """Lê um PDF linha a linha, com a posição e o tamanho da fonte de cada uma.
+
+    O corpo do texto é o tamanho de fonte mais frequente (ponderado por caractere); linhas com fonte pelo menos 15% maior e até 120 caracteres são títulos, com nível pelo tamanho (até 3 níveis). Um espaço vertical maior que 60% da altura da linha abre parágrafo novo.
+
+    Args:
+        dados: bytes do arquivo.
+
+    Returns:
+        Documento do tipo `pdf` com o número real de páginas.
+
+    Raises:
+        FormatoInvalido: PDF com mais de `MAX_PAGINAS_PROCESSAR` páginas.
+    """
     linhas_por_pagina = []
     with pdfplumber.open(io.BytesIO(dados)) as pdf:
         n = len(pdf.pages)
@@ -161,6 +256,11 @@ def _pdf(dados: bytes) -> Documento:
         altura_ant = 0.0
 
         def fechar():
+            """Fecha o parágrafo em construção da página atual, se houver texto.
+
+            Returns:
+                Nada; acrescenta o bloco à lista `blocos` da função externa.
+            """
             if atual:
                 blocos.append(Bloco(" ".join(atual), pag))
                 atual.clear()

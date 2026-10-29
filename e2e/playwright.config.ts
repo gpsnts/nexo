@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// Testes de ponta a ponta contra o `docker compose up` (ADR 0016). Requisito do curso: Chrome e Firefox; celular em viewport pequeno.
+// Testes de ponta a ponta contra o `docker compose up`. Requisito do curso: Chrome e Firefox; celular em viewport pequeno.
 export default defineConfig({
   testDir: './testes',
   timeout: 60_000,

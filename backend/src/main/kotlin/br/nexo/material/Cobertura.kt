@@ -5,11 +5,17 @@ import java.util.UUID
 /** Faixa de trechos de um tópico de um material. [id] nulo = tópico novo. */
 data class FaixaTopico(val id: UUID?, val nome: String, val inicio: Int, val fim: Int)
 
-/** Regra 12 (ADR 0042): as faixas vêm em ordem, dentro de 1 a N e sem sobreposição; trechos fora de qualquer tópico são permitidos (o estudante corta capa, sumário etc.). O banco só impede a sobreposição e trechos inexistentes. */
+/** as faixas vêm em ordem, dentro de 1 a N e sem sobreposição; trechos fora de qualquer tópico são permitidos (o estudante corta capa, sumário etc.). O banco só impede a sobreposição e trechos inexistentes. */
 object Cobertura {
     const val NOME_MAX = 200
 
-    /** Mensagem de erro (em português) ou nulo se a divisão é válida. */
+    /**
+     * Valida a divisão em faixas.
+     * @param faixas faixas de trechos, em ordem.
+     * @param totalTrechos quantidade de trechos do material.
+     * @param maxTopicos máximo de tópicos por material.
+     * @return mensagem de erro (em português) ou nulo se a divisão é válida.
+     */
     fun validar(faixas: List<FaixaTopico>, totalTrechos: Int, maxTopicos: Int): String? {
         if (faixas.isEmpty()) return "Informe ao menos um tópico."
         if (faixas.size > maxTopicos) return "No máximo $maxTopicos tópicos por material."
@@ -25,14 +31,22 @@ object Cobertura {
         return null
     }
 
-    /** Divisão automática (estrutura, modelo, blocos): além de [validar], cobre o material inteiro, de 1 a N, sem lacuna. Só o estudante deixa trechos de fora. */
+    /**
+     * Divisão automática (estrutura, modelo, blocos): além de [validar], cobre o material inteiro, de 1 a N, sem lacuna. Só o estudante deixa trechos de fora.
+     * @param faixas faixas propostas.
+     * @param totalTrechos quantidade de trechos do material.
+     * @param maxTopicos máximo de tópicos.
+     * @return verdadeiro se a divisão é válida e cobre tudo.
+     */
     fun cobreTudo(faixas: List<FaixaTopico>, totalTrechos: Int, maxTopicos: Int): Boolean =
         validar(faixas, totalTrechos, maxTopicos) == null && faixas.first().inicio == 1 && faixas.last().fim == totalTrechos && faixas.zipWithNext().all { (a, b) -> b.inicio == a.fim + 1 }
 
     /**
-     * Tópicos pela ESTRUTURA do documento (sem IA): cada título do nível mais alto que gere pelo menos duas seções abre um tópico.
-     * Seções com menos de [minimoTrechos] trechos se juntam à anterior (a primeira, à seguinte). Nulo se o documento não tem estrutura aproveitável
-     * (TXT, PDF sem títulos, uma seção só ou seções demais).
+     * Tópicos pela ESTRUTURA do documento (sem IA): cada título do nível mais alto que gere pelo menos duas seções abre um tópico. Seções com menos de [minimoTrechos] trechos se juntam à anterior (a primeira, à seguinte).
+     * @param trechos trechos extraídos, com título e nível.
+     * @param minimoTrechos tamanho mínimo de uma seção.
+     * @param maxTopicos máximo de tópicos.
+     * @return os tópicos propostos, ou nulo se o documento não tem estrutura aproveitável (TXT, PDF sem títulos, uma seção só ou seções demais).
      */
     fun porEstrutura(trechos: List<TrechoExtraido>, minimoTrechos: Int, maxTopicos: Int): List<TopicoProposto>? {
         if (trechos.isEmpty()) return null
@@ -52,16 +66,30 @@ object Cobertura {
     private data class Secao(val inicio: Int, val fim: Int, val titulos: List<String>) {
         val tamanho get() = fim - inicio + 1
 
-        /** Um título: ele. Vários: "primeiro a último", para o nome mostrar até onde o tópico vai. Sem título: "Introdução". */
+        /**
+         * Um título: ele. Vários: "primeiro a último", para o nome mostrar até onde o tópico vai. Sem título: "Introdução".
+         * @return o nome do tópico, limitado a [NOME_MAX] caracteres.
+         */
         fun nome(): String = when (titulos.size) {
             0 -> "Introdução"
             1 -> titulos[0]
             else -> "${titulos.first()} a ${titulos.last()}"
         }.take(NOME_MAX)
 
+        /**
+         * Junta esta seção com a seguinte.
+         * @param outra seção que vem logo depois.
+         * @return a seção que cobre as duas.
+         */
         fun juntarCom(outra: Secao) = Secao(inicio, outra.fim, titulos + outra.titulos)
     }
 
+    /**
+     * Junta seções pequenas à anterior; a primeira, se pequena, junta-se à seguinte.
+     * @param secoes seções em ordem.
+     * @param minimo tamanho mínimo de uma seção.
+     * @return as seções resultantes.
+     */
     private fun juntarPequenas(secoes: List<Secao>, minimo: Int): List<Secao> {
         val r = mutableListOf<Secao>()
         secoes.forEach { s ->
@@ -76,7 +104,13 @@ object Cobertura {
         return r
     }
 
-    /** UC05 A1 / plano B: blocos de tamanho semelhante. [titulos] (por ordem do trecho, base 1 na posição 0) dá nome ao bloco quando o trecho inicial abre com título. */
+    /**
+     * Plano B: blocos de tamanho semelhante. [titulos] (por ordem do trecho, base 1 na posição 0) dá nome ao bloco quando o trecho inicial abre com título.
+     * @param total quantidade de trechos.
+     * @param porTopico tamanho alvo de cada bloco.
+     * @param titulos título de cada trecho, se houver.
+     * @return os tópicos propostos, cobrindo de 1 a [total].
+     */
     fun blocosIguais(total: Int, porTopico: Int, titulos: List<String?> = emptyList()): List<TopicoProposto> {
         val blocos = maxOf(1, (total + porTopico - 1) / porTopico)
         val base = total / blocos

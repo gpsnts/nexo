@@ -4,9 +4,13 @@ import br.nexo.NexoProperties
 import jakarta.annotation.PostConstruct
 import org.springframework.stereotype.Component
 
-/** Em `nexo.ambiente=producao` a aplicação se recusa a subir com configuração que só serve para desenvolvimento (ADR 0017). */
+/** Em `nexo.ambiente=producao` a aplicação se recusa a subir com configuração que só serve para desenvolvimento. */
 @Component
 class GuardaDeAmbiente(private val props: NexoProperties) {
+    /**
+     * Lista as configurações inseguras para produção.
+     * @return mensagens dos problemas; vazia fora de produção ou se tudo estiver certo.
+     */
     fun problemas(): List<String> {
         if (props.ambiente != "producao") return emptyList()
         return listOfNotNull(
@@ -22,6 +26,10 @@ class GuardaDeAmbiente(private val props: NexoProperties) {
         )
     }
 
+    /**
+     * Impede a subida da aplicação em produção com configuração só de desenvolvimento.
+     * @throws IllegalStateException se [problemas] não estiver vazia.
+     */
     @PostConstruct
     fun validar() {
         val p = problemas()

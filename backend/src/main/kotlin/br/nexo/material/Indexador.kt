@@ -14,14 +14,21 @@ import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 
+/**
+ * Tarefa de indexação na fila.
+ * @property usuarioId dono do material.
+ * @property materialId material a indexar.
+ * @property assuntoId pasta onde os tópicos nascem.
+ */
 data class Tarefa(val usuarioId: UUID, val materialId: UUID, val assuntoId: UUID)
 
+/** A fila de indexação está cheia (o envio responde 503). */
 class FilaCheia : RuntimeException("Fila de indexação cheia")
 
 /**
- * UC04 e UC05 em executor próprio (ADR 0024). O estado da tarefa é o do banco (material e registro_geracao); a fila é só memória.
+ * Indexação e sugestão de tópicos em executor próprio. O estado da tarefa é o do banco (material e registro_geracao); a fila é só memória.
  * Tarefa perdida num reinício é detectada pelo [Andamento] (sem pulso e sem tarefa viva em [ativos]) e vira falhou/interrompido.
- * Thread de segundo plano não tem usuário (ADR 0019): tudo roda em `UsuarioAtual.como` e cada etapa abre a PRÓPRIA transação curta;
+ * Thread de segundo plano não tem usuário: tudo roda em `UsuarioAtual.como` e cada etapa abre a PRÓPRIA transação curta;
  * nenhuma transação fica aberta durante a chamada HTTP ao serviço Python.
  */
 @Component
@@ -40,6 +47,11 @@ class Indexador(
         Thread(r, "indexacao").apply { isDaemon = true }
     }
 
+    /**
+     * Enfileira a indexação (ou executa na hora, se `assincrono` for falso).
+     * @param t tarefa a executar.
+     * @throws FilaCheia se a fila estiver cheia.
+     */
     fun submeter(t: Tarefa) {
         ativos += t.materialId
         val corpo = Runnable { executar(t) }
@@ -52,6 +64,11 @@ class Indexador(
         }
     }
 
+    /**
+     * Executa a tarefa como o usuário dono, convertendo falhas em material `falhou` com o motivo.
+     * @param t tarefa a executar.
+     * @return nada.
+     */
     private fun executar(t: Tarefa) = UsuarioAtual.como(t.usuarioId) {
         try {
             rodar(t)
@@ -66,6 +83,11 @@ class Indexador(
         }
     }
 
+    /**
+     * Marca o material e os registros abertos como falhos.
+     * @param t tarefa.
+     * @param motivo código do motivo (ex.: `sem_texto`, `falha_ia`).
+     */
     private fun falhar(t: Tarefa, motivo: String) {
         runCatching {
             UsuarioAtual.como(t.usuarioId) {
@@ -78,6 +100,11 @@ class Indexador(
         }.onFailure { log.error("Não foi possível marcar {} como falhou", t.materialId, it) }
     }
 
+    /**
+     * Extrai, divide, gera embeddings em lotes e grava os trechos, atualizando o andamento; depois sugere os tópicos.
+     * @param t tarefa a executar.
+     * @throws FalhaProcessamento se o serviço de processamento falhar.
+     */
     private fun rodar(t: Tarefa) {
         val m = tx.execute { dados.material(t.materialId) } ?: return  // excluído enquanto esperava na fila
         val (modeloLinguagem, modeloEmbedding) = proc.modelos()
@@ -113,7 +140,12 @@ class Indexador(
         sugerirTopicos(t, extracao.trechos, modeloLinguagem)
     }
 
-    /** UC05. Modelo sem proposta válida (ou fora do ar): blocos de tamanho semelhante (A1). A cobertura é sempre conferida aqui (regra 12). */
+    /**
+     * Modelo sem proposta válida (ou fora do ar): blocos de tamanho semelhante (A1). A cobertura é sempre conferida aqui.
+     * @param t tarefa.
+     * @param trechos trechos extraídos.
+     * @param modeloLinguagem nome do modelo de linguagem, gravado no registro.
+     */
     private fun sugerirTopicos(t: Tarefa, trechos: List<TrechoExtraido>, modeloLinguagem: String) {
         val sug = UUID.randomUUID()
         tx.executeWithoutResult { dados.criarRegistro(sug, t.usuarioId, t.materialId, "sugestao_topicos", modeloLinguagem, 10) }

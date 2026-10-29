@@ -6,7 +6,7 @@ import java.util.UUID
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/** Executor de verdade (thread própria, sem usuário no SecurityContext, ADR 0019): a indexação precisa gravar como o dono do material. */
+/** Executor de verdade (thread própria, sem usuário no SecurityContext): a indexação precisa gravar como o dono do material. */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["nexo.conta.assincrono=false", "nexo.material.assincrono=true", "nexo.limite-publico.requisicoes=100000"],

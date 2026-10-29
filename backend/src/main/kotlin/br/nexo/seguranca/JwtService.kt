@@ -13,7 +13,7 @@ import java.time.Duration
 import java.util.UUID
 import javax.crypto.spec.SecretKeySpec
 
-/** JWT de acesso HS256, de vida curta (ADR 0008). */
+/** JWT de acesso HS256, de vida curta. */
 class JwtService(segredo: String, private val validade: Duration, private val relogio: Clock = Clock.systemUTC()) {
     private val chave = SecretKeySpec(segredo.toByteArray(), "HmacSHA256")
     private val codificador: JwtEncoder = NimbusJwtEncoder(ImmutableSecret(chave))
@@ -23,7 +23,12 @@ class JwtService(segredo: String, private val validade: Duration, private val re
         require(segredo.toByteArray().size >= 32) { "NEXO_JWT_SEGREDO precisa ter ao menos 32 bytes" }
     }
 
-    /** [sessaoId] é a família do refresh: a tela de sessões usa para marcar "este dispositivo". */
+    /**
+     * Emite um JWT de acesso assinado (HS256).
+     * @param usuarioId dono do token (claim `sub`).
+     * @param sessaoId família do refresh (claim `sid`): a tela de sessões usa para marcar "este dispositivo".
+     * @return o token serializado.
+     */
     fun emitir(usuarioId: UUID, sessaoId: UUID): String {
         val agora = relogio.instant()
         val claims = JwtClaimsSet.builder().subject(usuarioId.toString()).claim("sid", sessaoId.toString()).issuedAt(agora).expiresAt(agora.plus(validade)).build()

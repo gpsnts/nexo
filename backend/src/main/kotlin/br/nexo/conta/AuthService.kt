@@ -13,13 +13,24 @@ import java.time.Clock
 import java.util.Locale
 import java.util.UUID
 
+/**
+ * Resposta de autenticação enviada ao cliente.
+ * @property token JWT de acesso.
+ * @property nome nome do usuário.
+ */
 data class Sessao(val token: String, val nome: String)
 
 /** [refresh] vai para o cookie HttpOnly, nunca para o corpo da resposta. */
 class Autenticacao(val sessao: Sessao, val refresh: String)
 
+/**
+ * Normaliza o e-mail: sem espaços nas pontas e em minúsculas.
+ * @param email e-mail digitado.
+ * @return e-mail normalizado.
+ */
 fun normalizarEmail(email: String) = email.trim().lowercase(Locale.ROOT)
 
+/** Autenticação: cadastro, login com bloqueio por falhas, sessões com refresh rotativo e logout. */
 @Service
 class AuthService(
     private val usuarios: UsuarioRepository,
@@ -33,7 +44,13 @@ class AuthService(
     private val verificacao: VerificacaoService,
     private val auditoria: Auditoria,
 ) {
-    /** A conta nasce sem e-mail verificado e SEM sessão: o usuário só entra depois de confirmar o link (ADR 0014). */
+    /**
+     * A conta nasce sem e-mail verificado e SEM sessão: o usuário só entra depois de confirmar o link.
+     * @param nome nome de exibição.
+     * @param email e-mail (vira minúsculas).
+     * @param senha senha, validada pela [PoliticaSenha].
+     * @throws ErroNegocio 409 se o e-mail já estiver em uso; 400 se a senha for fraca.
+     */
     fun cadastrar(nome: String, email: String, senha: String) {
         val emailNormalizado = normalizarEmail(email)
         PoliticaSenha.exigir(senha, emailNormalizado)
@@ -56,6 +73,14 @@ class AuthService(
         verificacao.enviar(usuario)
     }
 
+    /**
+     * Autentica por e-mail e senha.
+     * @param email e-mail informado.
+     * @param senha senha informada.
+     * @param origem dispositivo e IP, gravados na sessão.
+     * @return JWT de acesso e refresh para o cookie.
+     * @throws ErroNegocio 401 para credenciais inválidas ou conta bloqueada; 403 se o e-mail não foi verificado.
+     */
     fun entrar(email: String, senha: String, origem: Origem): Autenticacao {
         val usuario = usuarios.findByEmail(normalizarEmail(email))
         if (!conferirSenha(usuario, senha)) throw ErroNegocio(HttpStatus.UNAUTHORIZED, MENSAGEM_LOGIN, "credenciais_invalidas")
@@ -69,8 +94,10 @@ class AuthService(
     }
 
     /**
-     * Confere a senha aplicando o bloqueio (5 falhas seguidas, ADR 0011). Bloqueado, senha errada e e-mail
-     * inexistente têm o mesmo resultado e o mesmo custo (sempre há um hash Argon2), para não revelar quais e-mails existem.
+     * Confere a senha aplicando o bloqueio (5 falhas seguidas). Bloqueado, senha errada e e-mail inexistente têm o mesmo resultado e o mesmo custo (sempre há um hash Argon2), para não revelar quais e-mails existem.
+     * @param usuario conta encontrada, ou nulo se o e-mail não existe.
+     * @param senha senha informada.
+     * @return verdadeiro só se a senha estiver certa e a conta não estiver bloqueada.
      */
     fun conferirSenha(usuario: Usuario?, senha: String): Boolean {
         val agora = relogio.instant()
@@ -87,11 +114,22 @@ class AuthService(
         return true
     }
 
-    /** Nova família de sessões (login, cadastro, troca de senha). */
+    /**
+     * Nova família de sessões (login, cadastro, troca de senha).
+     * @param usuario dono da sessão.
+     * @param origem dispositivo e IP.
+     * @return JWT de acesso e refresh.
+     */
     fun abrirSessao(usuario: Usuario, origem: Origem): Autenticacao =
         tx.execute { novaSessao(usuario, UUID.randomUUID(), origem, relogio.instant()) }
 
-    /** Rotação: cada refresh vale uma vez. Token já usado volta a aparecer = possível roubo: revoga a família inteira. */
+    /**
+     * Rotação: cada refresh vale uma vez. Token já usado volta a aparecer = possível roubo: revoga a família inteira.
+     * @param bruto refresh recebido no cookie.
+     * @param origem dispositivo e IP.
+     * @return novo JWT de acesso e novo refresh.
+     * @throws ErroNegocio 401 se o refresh for inválido, usado, revogado ou expirado.
+     */
     fun renovar(bruto: String?, origem: Origem): Autenticacao {
         val aut = bruto?.takeIf { it.isNotBlank() }?.let { b ->
             tx.execute {
@@ -110,6 +148,10 @@ class AuthService(
         return aut ?: throw ErroNegocio(HttpStatus.UNAUTHORIZED, "Sessão expirada. Entre novamente.", "sessao_expirada")
     }
 
+    /**
+     * Encerra a família de sessões do refresh informado (logout).
+     * @param bruto refresh do cookie; vazio é ignorado.
+     */
     fun sair(bruto: String?) {
         if (bruto.isNullOrBlank()) return
         tx.executeWithoutResult {
@@ -120,8 +162,21 @@ class AuthService(
         }
     }
 
+    /**
+     * Revoga todas as sessões do usuário.
+     * @param usuarioId usuário.
+     * @return quantidade de sessões revogadas.
+     */
     fun revogarTodas(usuarioId: UUID) = sessoes.revogarTodas(usuarioId, relogio.instant())
 
+    /**
+     * Grava o refresh novo e emite o JWT.
+     * @param usuario dono da sessão.
+     * @param familia família do refresh.
+     * @param origem dispositivo e IP.
+     * @param inicio quando a família começou.
+     * @return JWT de acesso e refresh bruto.
+     */
     private fun novaSessao(usuario: Usuario, familia: UUID, origem: Origem, inicio: java.time.Instant): Autenticacao {
         val bruto = Tokens.novo()
         sessoes.save(SessaoRefresh(UUID.randomUUID(), usuario.id, familia, Tokens.hash(bruto), relogio.instant().plus(props.jwt.validadeRefresh),
@@ -129,6 +184,10 @@ class AuthService(
         return Autenticacao(Sessao(jwt.emitir(usuario.id, familia), usuario.nome), bruto)
     }
 
+    /**
+     * Erro padrão de e-mail já cadastrado.
+     * @return erro 409 `email_em_uso`.
+     */
     private fun emailEmUso() = ErroNegocio(HttpStatus.CONFLICT, "Este e-mail já está cadastrado. Entre com a sua conta.", "email_em_uso")
 
     private val hashFalso by lazy { encoder.encode("senha-que-nunca-sera-usada")!! }

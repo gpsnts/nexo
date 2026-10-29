@@ -5,9 +5,17 @@ import jakarta.servlet.http.HttpServletRequest
 /** De onde veio o login ou a renovação: guardado na sessão para a lista "Sessões ativas". */
 data class Origem(val dispositivo: String, val ip: String)
 
+/**
+ * Descreve a origem da requisição corrente.
+ * @return dispositivo (derivado do User-Agent) e IP do cliente.
+ */
 fun HttpServletRequest.origem() = Origem(descreverDispositivo(getHeader("User-Agent")), remoteAddr ?: "")
 
-/** "Firefox em Linux". Não é um parser completo de User-Agent: só o suficiente para a pessoa reconhecer o aparelho. */
+/**
+ * Resume o User-Agent no formato "Firefox em Linux". Não é um parser completo: só o suficiente para a pessoa reconhecer o aparelho.
+ * @param agente cabeçalho User-Agent, possivelmente ausente.
+ * @return texto "navegador em sistema", ou "Dispositivo desconhecido" sem cabeçalho.
+ */
 fun descreverDispositivo(agente: String?): String {
     if (agente.isNullOrBlank()) return "Dispositivo desconhecido"
     val navegador = when {

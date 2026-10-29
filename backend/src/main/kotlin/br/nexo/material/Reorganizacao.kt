@@ -10,13 +10,29 @@ import java.math.BigDecimal
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
+/**
+ * Tópico de um rascunho de reorganização.
+ * @property id tópico existente, ou nulo se é novo.
+ * @property nome nome proposto.
+ * @property inicio ordem do primeiro trecho.
+ * @property fim ordem do último trecho.
+ * @property temConteudo se já tem resumo ou questões (congelado).
+ */
 data class TopicoRascunho(val id: UUID?, val nome: String, val inicio: Int, val fim: Int, val temConteudo: Boolean)
+/**
+ * Rascunho de divisão proposto pela IA (não gravado).
+ * @property topicos tópicos propostos.
+ * @property mudou se difere da divisão atual.
+ * @property modelo modelo usado.
+ * @property tokensEntrada tokens do prompt.
+ * @property tokensSaida tokens gerados.
+ */
 data class Rascunho(val topicos: List<TopicoRascunho>, val mudou: Boolean, val modelo: String, val tokensEntrada: Int, val tokensSaida: Int)
 
 /**
  * "Reorganizar com IA": o modelo de linguagem reavalia a divisão atual e propõe outra. Devolve um RASCUNHO e não grava nada: o usuário revisa na tela
- * e confirma pelo `PUT /materiais/{id}/topicos` de sempre (ADR 0025), com a mesma regra de tópicos congelados (ADR 0028). Cada pedido é uma operação
- * com IA: ganha registro em `registro_geracao` (`sugestao_topicos`), com tokens mesmo quando a proposta é recusada (ADR 0032).
+ * e confirma pelo `PUT /materiais/{id}/topicos` de sempre, com a mesma regra de tópicos congelados. Cada pedido é uma operação
+ * com IA: ganha registro em `registro_geracao` (`sugestao_topicos`), com tokens mesmo quando a proposta é recusada.
  */
 @Service
 class Reorganizacao(
@@ -30,6 +46,12 @@ class Reorganizacao(
 ) {
     private val emAndamento = ConcurrentHashMap.newKeySet<UUID>()  // um pedido por material por vez (o clique repetido não gasta duas chamadas)
 
+    /**
+     * Pede à IA uma nova divisão e devolve um rascunho, sem gravar nada.
+     * @param materialId material pronto.
+     * @return o rascunho proposto.
+     * @throws ErroNegocio 404 se o material não existir; 409 se não estiver pronto ou já houver pedido em andamento; 422 se a IA devolver divisão inválida; 503 se a IA falhar; limites de uso.
+     */
     fun reorganizar(materialId: UUID): Rascunho {
         val uid = UsuarioAtual.id() ?: throw ErroNegocio(HttpStatus.UNAUTHORIZED, "Não autenticado.", "nao_autenticado")
         val atuais = tx.execute {
@@ -69,6 +91,11 @@ class Reorganizacao(
         }
     }
 
+    /**
+     * Erro de IA indisponível.
+     * @param codigo código da falha do serviço de IA.
+     * @return erro 503 `ia_indisponivel` com mensagem clara.
+     */
     private fun indisponivel(codigo: String? = null) = ErroNegocio(HttpStatus.SERVICE_UNAVAILABLE, MensagensIa.deCodigo(codigo), "ia_indisponivel")
 
     companion object {

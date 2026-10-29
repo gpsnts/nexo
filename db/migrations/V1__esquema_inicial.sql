@@ -255,7 +255,7 @@ CREATE TABLE registro_geracao (
   CONSTRAINT registro_finalizacao_coerente CHECK ((status IN ('concluida', 'falhou')) = (finalizada_em IS NOT NULL)),
   CONSTRAINT registro_progresso_coerente CHECK (status <> 'concluida' OR progresso_percentual = 100),
   FOREIGN KEY (topico_id, usuario_id) REFERENCES topico (id, usuario_id),
-  -- Preenchido nas operações que ainda não têm tópico; o backend anula ao excluir o material (UC17).
+  -- Preenchido nas operações que ainda não têm tópico; o backend anula ao excluir o material.
   FOREIGN KEY (material_id, usuario_id) REFERENCES material (id, usuario_id)
 );
 

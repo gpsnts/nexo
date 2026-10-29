@@ -13,9 +13,9 @@ import java.time.Clock
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * Limite por IP nas rotas públicas que custam um hash Argon2 (ADR 0012). O bloqueio de 5 falhas protege uma conta;
+ * Limite por IP nas rotas públicas que custam um hash Argon2. O bloqueio de 5 falhas protege uma conta;
  * este protege o servidor de quem tenta contas diferentes. Janela deslizante, em memória.
- * shortcut: o contador é por instância; com mais de uma instância do backend, mover para um armazenamento compartilhado.
+ * o contador é por instância; com mais de uma instância do backend, mover para um armazenamento compartilhado.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -43,6 +43,7 @@ class LimiteTaxaFiltro(private val props: NexoProperties, private val relogio: C
         chain.doFilter(request, response)
     }
 
+    /** Remove da memória os IPs sem acessos dentro da janela (roda a cada 10 minutos). */
     @Scheduled(fixedRate = 600_000)
     fun limpar() {
         val limite = relogio.millis() - props.limitePublico.janela.toMillis()
@@ -50,7 +51,11 @@ class LimiteTaxaFiltro(private val props: NexoProperties, private val relogio: C
     }
 
     companion object {
-        /** IPv6: um cliente costuma ter um bloco /64 inteiro; contar cada /128 deixaria contornar o limite trocando de endereço. */
+        /**
+         * Chave de contagem de um IP: IPv4 como está; IPv6 reduzido ao bloco /64.
+         * @param endereco IP do cliente.
+         * @return a chave usada no contador.
+         */
         fun chaveIp(endereco: String): String {
             if (':' !in endereco) return endereco
             return try {

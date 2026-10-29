@@ -16,6 +16,10 @@ class LimpezaConta(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
+    /**
+     * Apaga sessões e tokens vencidos e contas nunca verificadas (roda no cron configurado).
+     * @return total de linhas apagadas.
+     */
     @Scheduled(cron = "\${nexo.conta.limpeza-cron}", zone = "\${nexo.fuso}")
     fun executar(): Int {
         val agora = relogio.instant()

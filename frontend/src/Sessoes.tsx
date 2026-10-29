@@ -1,10 +1,15 @@
+import Carregando from './Esqueleto'
 import { useCallback, useEffect, useState } from 'react'
 import { api, ErroApi } from './api'
 import { dataCompleta, tempoRelativo } from './tempo'
 
+/** Sessão ativa devolvida por `GET /perfil/sessoes`. */
 type Item = { id: string; dispositivo: string; ip: string; inicio: string; ultimaAtividade: string; atual: boolean }
 
-/** Dispositivos conectados à conta (ADR 0015). Cada item é um login; encerrar derruba a renovação daquele dispositivo. */
+/**
+ * Dispositivos conectados à conta. Cada item é um login; encerrar derruba a renovação daquele dispositivo.
+ * @returns a seção de sessões ativas.
+ */
 export default function Sessoes() {
   const [itens, setItens] = useState<Item[] | null>(null)
   const [falhou, setFalhou] = useState(false)
@@ -12,9 +17,15 @@ export default function Sessoes() {
   const [ocupado, setOcupado] = useState(false)
 
   const carregar = useCallback(() => api<Item[]>('/perfil/sessoes').then(setItens).catch(() => setFalhou(true)), [])
+  /** Repete a consulta depois de uma falha. */
   const tentarDeNovo = () => { setFalhou(false); carregar() }
   useEffect(() => { carregar() }, [carregar])
 
+  /**
+   * Encerra uma ou todas as outras sessões e recarrega a lista.
+   * @param caminho rota `DELETE` (uma sessão ou todas as outras).
+   * @returns promessa resolvida quando termina.
+   */
   async function executar(caminho: string) {
     setErro(''); setOcupado(true)
     try {
@@ -31,7 +42,7 @@ export default function Sessoes() {
     <section id="secao-sessoes" className="secao larga">
       <h2>Sessões ativas</h2>
       <p className="sub">Dispositivos em que a sua conta está conectada. Se algum não for seu, encerre-o e troque a senha.</p>
-      {itens === null && !falhou && <p className="sub" role="status">Carregando…</p>}
+      {itens === null && !falhou && <Carregando blocos={2} />}
       {falhou && (
         <p role="alert" className="erro">Não foi possível carregar as sessões. <button type="button" className="link" onClick={tentarDeNovo}>Tentar de novo</button></p>
       )}

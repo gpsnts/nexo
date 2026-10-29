@@ -1,6 +1,10 @@
 import { useId, useState } from 'react'
 
-/** Campo de formulário com rótulo associado, erro por campo e, em tipo "password", botão de mostrar/ocultar. */
+/**
+ * Campo de formulário com rótulo associado, erro por campo e, em tipo "password", botão de mostrar/ocultar.
+ * @param props rotulo: texto do rótulo; valor: valor atual; mudar: recebe o novo valor; tipo: text, email ou password; auto: valor de autocomplete; dica: texto de ajuda; erro: mensagem de erro; focar: se recebe o foco ao montar.
+ * @returns o campo.
+ */
 export default function Campo({ rotulo, valor, mudar, tipo = 'text', auto, dica, erro, focar }: {
   rotulo: string; valor: string; mudar: (v: string) => void; tipo?: 'text' | 'email' | 'password'; auto?: string; dica?: string; erro?: string; focar?: boolean
 }) {
@@ -32,7 +36,11 @@ export default function Campo({ rotulo, valor, mudar, tipo = 'text', auto, dica,
   )
 }
 
-/** Campo de usuário invisível: sem ele o gerenciador de senhas do navegador não sabe a qual conta o campo de senha pertence. */
+/**
+ * Campo de usuário invisível: sem ele o gerenciador de senhas do navegador não sabe a qual conta o campo de senha pertence.
+ * @param props email: e-mail da conta.
+ * @returns o campo oculto.
+ */
 export const CampoUsuario = ({ email }: { email: string }) => (
   <input type="text" name="username" autoComplete="username" value={email} readOnly tabIndex={-1} aria-hidden="true" className="oculto" />
 )

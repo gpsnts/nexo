@@ -11,7 +11,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Executor de geração de verdade (uma thread, fila, sem usuário no SecurityContext, ADR 0019): a geração precisa gravar como o dono do tópico,
+ * Executor de geração de verdade (uma thread, fila, sem usuário no SecurityContext): a geração precisa gravar como o dono do tópico,
  * e uma tarefa cancelada ainda na fila não pode chegar a chamar o serviço de IA (nem o embedding do conteúdo-base).
  */
 @SpringBootTest(

@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { criarContaEEntrar, enviarMaterial, fixture, reiniciarBackend, sql } from '../ajudas'
 
-// Provedores de IA falsos (ADR 0026): o fluxo é o do provedor real; o conteúdo é só um eco do material.
-test('tópico de material: gera resumo e questões com barra, grava só as aprovadas e lista com a correta @celular', async ({ page }) => {
+// Provedores de IA falsos: o fluxo é o do provedor real; o conteúdo é só um eco do material.
+test('tópico de material: gera resumo e questões com barra, grava só as aprovadas e lista sem o gabarito @celular', async ({ page }) => {
   await criarContaEEntrar(page)
   await enviarMaterial(page, fixture('apostila-50-paginas.pdf'))
   await expect(page.getByRole('heading', { name: 'Tópicos do material' })).toBeVisible({ timeout: 45_000 })
@@ -16,7 +16,7 @@ test('tópico de material: gera resumo e questões com barra, grava só as aprov
   await page.getByLabel('Quantas questões gerar').fill('3')
   await page.getByRole('button', { name: 'Gerar questões' }).click()
   await expect(page.getByText(/3 questões gravadas/)).toBeVisible({ timeout: 45_000 })
-  await expect(page.getByRole('list', { name: 'Questões do tópico' }).locator('li.correta')).toHaveCount(3)
+  await expect(page.getByRole('list', { name: 'Questões do tópico' }).locator('li.correta')).toHaveCount(0) // o gabarito só aparece depois de responder
 
   await page.reload() // vem do banco
   await expect(page.getByRole('heading', { name: /Questões \(3\)/ })).toBeVisible()
@@ -93,7 +93,7 @@ test('início: materiais e tópicos livres na mesma lista, com o tipo de cada um
   await expect(lista.getByRole('listitem')).toHaveCount(2)
   await expect(lista.getByRole('listitem').first()).toContainText('Tópico livre') // o mais novo primeiro
   await expect(lista.getByRole('listitem').last()).toContainText('Material')
-  await expect(page.getByText(/O assunto padrão guarda os estudos/)).toBeVisible()
+  await expect(page.getByText(/"Geral" guarda os estudos que não estão em nenhuma pasta/)).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
@@ -136,6 +136,7 @@ test('URL e código sem espaços não estouram a página (resumo e questões) @c
     INSERT INTO resumo(id,usuario_id,topico_id,conteudo)
     SELECT gen_random_uuid(), usuario_id, id, E'Veja ${url}\\n\\n${codigo}\\n\\n' || repeat('Texto comum. ', 40) FROM topico WHERE nome = '${nome}';`)
   await page.reload()
+  await page.getByText(/Banco de questões/).click() // as questões ficam num banco recolhido
   await expect(page.getByText(/Qual a fonte\?/)).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), 'rolagem horizontal').toBe(true)
   // nada passa da borda do cartão que o contém

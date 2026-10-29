@@ -12,7 +12,22 @@ URL_PADRAO = "https://generativelanguage.googleapis.com"
 
 
 def _enviar(cliente: httpx.Client, caminho: str, chave: str, corpo: dict, o_que: str, espera) -> httpx.Response:
-    """POST com o tratamento comum: rede vira erro repetível; 429 com espera curta sugerida pelo provedor espera e tenta UMA vez de novo."""
+    """POST com o tratamento comum: rede vira erro repetível; 429 com espera curta sugerida pelo provedor espera e tenta UMA vez de novo.
+
+    Args:
+        cliente: cliente HTTP.
+        caminho: caminho da rota.
+        chave: chave de API (cabeçalho `x-goog-api-key`).
+        corpo: JSON do pedido.
+        o_que: nome da operação para as mensagens de erro.
+        espera: função de espera.
+
+    Returns:
+        A resposta HTTP com status 200.
+
+    Raises:
+        ErroProvedor: rede indisponível ou status diferente de 200.
+    """
     for tentativa in (1, 2):
         try:
             r = cliente.post(caminho, headers={"x-goog-api-key": chave}, json=corpo)
@@ -34,6 +49,16 @@ class ModeloLinguagemGemini:
     """
 
     def __init__(self, chave: str, modelo: str, max_tokens: int = 4096, cliente: httpx.Client | None = None, espera=time.sleep, temperatura: float | None = None):
+        """Cria o adaptador.
+
+        Args:
+            chave: chave de API do Google AI Studio.
+            modelo: nome do modelo.
+            max_tokens: teto de `maxOutputTokens`.
+            cliente: cliente HTTP (injetável nos testes).
+            espera: função de espera (injetável nos testes).
+            temperatura: temperatura, só enviada quando informada.
+        """
         self.nome = modelo
         self._chave = chave
         self._max_tokens = max_tokens
@@ -42,8 +67,21 @@ class ModeloLinguagemGemini:
         self._espera = espera
 
     def gerar(self, prompt: str, imagens: list[bytes] | None = None):
+        """Chama `generateContent`.
+
+        Args:
+            prompt: texto do pedido.
+            imagens: não suportado ainda.
+
+        Returns:
+            RespostaLinguagem com o texto e os tokens (saída inclui os de raciocínio).
+
+        Raises:
+            ErroProvedor: rede, status ruim, resposta inesperada, bloqueada, cortada ou vazia.
+            NotImplementedError: se `imagens` for informado.
+        """
         if imagens:
-            raise NotImplementedError("descrição de figuras é a F6c")
+            raise NotImplementedError("descrição de figuras ainda não é suportada")
         corpo = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": self._max_tokens}}
         if self._temperatura is not None:
             corpo["generationConfig"]["temperature"] = self._temperatura
@@ -78,18 +116,45 @@ class EmbeddingGemini:
     dimensao = DIMENSAO
 
     def __init__(self, chave: str, modelo: str = "gemini-embedding-2", cliente: httpx.Client | None = None, espera=time.sleep):
+        """Cria o adaptador.
+
+        Args:
+            chave: chave de API do Google AI Studio.
+            modelo: nome do modelo de embedding.
+            cliente: cliente HTTP (injetável nos testes).
+            espera: função de espera (injetável nos testes).
+        """
         self.nome = modelo
         self._chave = chave
         self._cliente = cliente or httpx.Client(base_url=URL_PADRAO, timeout=60)
         self._espera = espera
 
     def _item(self, texto: str) -> dict:
+        """Monta um item do `batchEmbedContents`.
+
+        Args:
+            texto: texto a vetorizar.
+
+        Returns:
+            Dicionário do pedido com a dimensão de saída (e `taskType` no modelo 001).
+        """
         config = {"outputDimensionality": DIMENSAO}
         if self.nome == "gemini-embedding-001":
             config["taskType"] = "SEMANTIC_SIMILARITY"
         return {"model": f"models/{self.nome}", "content": {"parts": [{"text": texto}]}, "embedContentConfig": config}
 
     def gerar(self, textos: list[str]) -> RespostaEmbedding:
+        """Chama `batchEmbedContents` e normaliza os vetores.
+
+        Args:
+            textos: textos a vetorizar.
+
+        Returns:
+            RespostaEmbedding com vetores de 1536 dimensões normalizados e os tokens gastos.
+
+        Raises:
+            ErroProvedor: rede, status ruim ou resposta fora do esperado.
+        """
         r = _enviar(self._cliente, f"/v1beta/models/{self.nome}:batchEmbedContents", self._chave, {"requests": [self._item(t) for t in textos]}, "modelo de embedding", self._espera)
         try:
             d = r.json()
@@ -103,5 +168,13 @@ class EmbeddingGemini:
 
 
 def _normalizar(v: list[float]) -> list[float]:
+    """Normaliza um vetor para norma 1.
+
+    Args:
+        v: vetor.
+
+    Returns:
+        O vetor dividido pela sua norma (o próprio vetor se a norma for zero).
+    """
     n = math.sqrt(sum(x * x for x in v))
     return [x / n for x in v] if n else v

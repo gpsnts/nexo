@@ -12,7 +12,7 @@ import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionSynchronizationManager
 
 /**
- * Executa o equivalente a `SET LOCAL app.usuario_id` no início de TODA transação (regra 2 do CLAUDE.md).
+ * Executa o equivalente a `SET LOCAL app.usuario_id` no início de TODA transação.
  * `set_config(..., true)` é o SET LOCAL com parâmetro: vale só até o fim da transação, então não vaza no pool.
  * Sem usuário atual nada é definido e a RLS devolve 0 linhas.
  */
@@ -31,8 +31,14 @@ class GerenciadorTransacaoComRls(emf: EntityManagerFactory) : JpaTransactionMana
     }
 }
 
+/** Registra o gerenciador de transação que aplica a RLS. */
 @Configuration
 class TransacaoConfig {
+    /**
+     * Gerenciador de transação que define `app.usuario_id` no início de cada transação.
+     * @param emf fábrica de gerenciadores de entidade.
+     * @return o [GerenciadorTransacaoComRls].
+     */
     @Bean
     fun transactionManager(emf: EntityManagerFactory) = GerenciadorTransacaoComRls(emf)
 }

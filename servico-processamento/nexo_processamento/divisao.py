@@ -7,6 +7,15 @@ from nexo_processamento.extracao import Bloco
 
 @dataclass(frozen=True)
 class Trecho:
+    """Pedaço de texto do material, a unidade de busca e de geração (tabela `trecho`).
+
+    Attributes:
+        ordem: posição do trecho no material, a partir de 1.
+        numero_pagina: página onde o trecho começa (nulo em DOCX e TXT).
+        conteudo: texto do trecho (parágrafos inteiros, separados por linha em branco).
+        titulo: título que abre o trecho (apoia a sugestão de tópicos).
+        nivel: nível desse título (1 = capítulo); nulo se o trecho não abre com título.
+    """
     ordem: int
     numero_pagina: int | None
     conteudo: str
@@ -15,7 +24,15 @@ class Trecho:
 
 
 def _cortar(texto: str, maximo: int) -> list[str]:
-    """Parágrafo maior que o máximo: corta em fim de frase (ou, sem frase, no limite)."""
+    """Corta um parágrafo maior que o máximo em fim de frase (ou, sem frase, no limite).
+
+    Args:
+        texto: parágrafo a cortar.
+        maximo: tamanho máximo, em caracteres, de cada pedaço.
+
+    Returns:
+        Os pedaços, em ordem, cada um com no máximo `maximo` caracteres.
+    """
     partes, atual = [], ""
     for frase in re.split(r"(?<=[.!?])\s+", texto):
         while len(frase) > maximo:
@@ -35,6 +52,19 @@ def _cortar(texto: str, maximo: int) -> list[str]:
 
 
 def dividir(blocos: list[Bloco], alvo: int = 1500, maximo: int = 2000, minimo: int = 300) -> list[Trecho]:
+    """Divide os blocos extraídos em trechos respeitando a estrutura.
+
+    Parágrafos ficam inteiros; título abre trecho novo, mas só se o que veio antes já tem corpo (seções de poucas linhas se juntam, para um documento cheio de títulos não virar centenas de trechos minúsculos); título de nível 1 sempre abre trecho novo, para a fronteira de um tópico cair num limite de trecho. Não há sobreposição de texto.
+
+    Args:
+        blocos: blocos do documento, em ordem (parágrafos e títulos).
+        alvo: tamanho desejado de um trecho, em caracteres.
+        maximo: tamanho máximo de um parágrafo antes de ser cortado.
+        minimo: corpo mínimo que um trecho precisa ter para um título (que não seja de nível 1) abrir o seguinte.
+
+    Returns:
+        Os trechos numerados a partir de 1, com página, título e nível quando o trecho abre com título.
+    """
     trechos: list[Trecho] = []
     atual: list[str] = []
     pagina: int | None = None
@@ -42,6 +72,11 @@ def dividir(blocos: list[Bloco], alvo: int = 1500, maximo: int = 2000, minimo: i
     nivel: int | None = None
 
     def fechar():
+        """Fecha o trecho em construção (se houver texto) e zera o estado para o próximo.
+
+        Returns:
+            Nada; acrescenta o trecho à lista `trechos` da função externa.
+        """
         nonlocal atual, titulo, nivel
         if atual:
             trechos.append(Trecho(len(trechos) + 1, pagina, "\n\n".join(atual), titulo, nivel))

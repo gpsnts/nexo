@@ -12,7 +12,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
 
-/** Limite por IP nas rotas públicas (ADR 0012): contexto próprio, com limite de 3 por janela. */
+/** Limite por IP nas rotas públicas: contexto próprio, com limite de 3 por janela. */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["nexo.conta.assincrono=false", "nexo.limite-publico.requisicoes=3"],

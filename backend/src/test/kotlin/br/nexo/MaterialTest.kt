@@ -17,7 +17,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-/** UC02 a UC05: envio, indexação, andamento, tópicos. O serviço Python é o [PythonFalso] (ADR 0024). */
+/** envio, indexação, andamento, tópicos. O serviço Python é o [PythonFalso]. */
 class MaterialTest : BaseIntegracao() {
     @Autowired lateinit var tx: TransactionTemplate
     @Autowired lateinit var rotina: Dados
@@ -442,7 +442,7 @@ class MaterialTest : BaseIntegracao() {
         assertEquals(409, put(c, "/materiais/$id/topicos", faixas(Triple(null, "A", 1..1))).status)
     }
 
-    // ---------- tópico com conteúdo gerado (ADR 0028) ----------
+    // ---------- tópico com conteúdo gerado ----------
 
     private fun comResumo(c: Conta, topico: String) =
         dono.update("INSERT INTO resumo(id,usuario_id,topico_id,conteudo) VALUES (?,?,?::uuid,'resumo')", UUID.randomUUID(), c.id, topico)
@@ -489,7 +489,7 @@ class MaterialTest : BaseIntegracao() {
         assertEquals(200, put(b, "/materiais/$idB/topicos", faixas(Triple(tb[0], "Tudo", 1..10))).status)
     }
 
-    // ---------- UC03: tópico livre ----------
+    // ---------- tópico livre ----------
 
     @Test
     fun `topico livre entra ao final do assunto, sem material`() {
@@ -550,7 +550,7 @@ class MaterialTest : BaseIntegracao() {
         assertEquals(0, UsuarioAtual.como(outro.id) { tx.execute { jdbc.queryForObject("SELECT count(*) FROM trecho WHERE usuario_id = ?", Int::class.java, c.id) } })
     }
 
-    // ---------- remoção (regras 6 e 7) ----------
+    // ---------- remoção ----------
 
     @Test
     fun `rotina de remocao anula a referencia, apaga trechos e fontes, mantem topicos e registros e apaga o arquivo so depois do commit`() {

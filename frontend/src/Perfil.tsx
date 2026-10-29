@@ -5,8 +5,14 @@ import { DadosPessoais, ExcluirConta, TrocaEmail, TrocaSenha } from './PerfilSec
 import Sessoes from './Sessoes'
 import { useTitulo } from './titulo'
 
+/** Dados do perfil devolvidos por `GET /perfil`. */
 type Dados = { nome: string; email: string }
 
+/**
+ * Tela do perfil: dados pessoais, troca de e-mail e de senha, sessões ativas e exclusão da conta.
+ * @param props nome: nome atual; aoIrInicio: volta ao início; aoSair: encerra a sessão; aoExcluir: chamado após excluir a conta; aoAtualizarNome: avisa o novo nome.
+ * @returns a tela.
+ */
 export default function Perfil({ nome: nomeAtual, aoIrInicio, aoSair, aoExcluir, aoAtualizarNome }: {
   nome: string; aoIrInicio: () => void; aoSair: () => void; aoExcluir: () => void; aoAtualizarNome: (n: string) => void
 }) {
@@ -23,7 +29,7 @@ export default function Perfil({ nome: nomeAtual, aoIrInicio, aoSair, aoExcluir,
         <nav aria-label="Seções do perfil" className="indice">
           <a href="#secao-dados">Dados pessoais</a><a href="#secao-email">E-mail</a><a href="#secao-senha">Senha</a><a href="#secao-sessoes">Sessões</a><a href="#secao-excluir">Excluir conta</a>
         </nav>
-        <div className="grade">
+        <div className="grade grade-perfil">
           <DadosPessoais nomeInicial={dados?.nome ?? nomeAtual} key={dados?.nome ?? nomeAtual} aoSalvar={(d) => { setDados(d); aoAtualizarNome(d.nome) }} />
           <TrocaEmail email={dados?.email ?? ''} />
           <TrocaSenha email={dados?.email ?? ''} />

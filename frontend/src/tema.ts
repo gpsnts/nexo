@@ -1,9 +1,14 @@
+/** Tema escolhido: acompanhar o sistema, claro ou escuro. */
 export type Tema = 'sistema' | 'claro' | 'escuro'
 const CHAVE = 'nexo-tema'
 const COR_CLARA = '#f6f7fb'
 const COR_ESCURA = '#0f1020'
 
 // localStorage pode lançar (navegação privada, dados bloqueados): o tema é conveniência, nunca pode quebrar a página.
+/**
+ * Lê o tema salvo. O localStorage pode lançar (navegação privada, dados bloqueados): o tema é conveniência, nunca pode quebrar a página.
+ * @returns o tema salvo, ou `sistema` se não houver.
+ */
 export function lerTema(): Tema {
   try {
     const v = localStorage.getItem(CHAVE)
@@ -13,7 +18,10 @@ export function lerTema(): Tema {
   }
 }
 
-/** Cor da barra do navegador no celular: acompanha o tema escolhido (as duas metas ficam iguais quando o tema é forçado). */
+/**
+ * Cor da barra do navegador no celular: acompanha o tema escolhido (as duas metas ficam iguais quando o tema é forçado).
+ * @param t tema aplicado.
+ */
 function ajustarBarra(t: Tema) {
   document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((m) => {
     const escura = (m.getAttribute('media') ?? '').includes('dark')
@@ -21,7 +29,10 @@ function ajustarBarra(t: Tema) {
   })
 }
 
-/** "sistema" remove o atributo e deixa valer prefers-color-scheme; "claro" e "escuro" o forçam. */
+/**
+ * "sistema" remove o atributo e deixa valer prefers-color-scheme; "claro" e "escuro" o forçam.
+ * @param t tema a aplicar e salvar.
+ */
 export function aplicarTema(t: Tema) {
   const raiz = document.documentElement
   if (t === 'sistema') raiz.removeAttribute('data-theme')

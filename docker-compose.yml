@@ -60,7 +60,7 @@ services:
       NEXO_JWT_SEGREDO: ${NEXO_JWT_SEGREDO:?defina no .env}
       NEXO_AMBIENTE: ${NEXO_AMBIENTE:-desenvolvimento}
       NEXO_LIMITE_PUBLICO_REQUISICOES: ${NEXO_LIMITE_PUBLICO_REQUISICOES:-20}  # só os testes E2E (cadastram dezenas de contas por minuto) sobem isto
-    volumes: [arquivos:/dados/arquivos]  # arquivos enviados (ADR 0024); só o backend monta
+    volumes: [arquivos:/dados/arquivos]  # arquivos enviados; só o backend monta
     ports: ["127.0.0.1:8080:8080"]  # só a máquina local; o acesso externo passa pelo frontend (nginx)
     healthcheck:  # a imagem JRE não tem curl; bash abre o socket (o frontend só sobe depois, sem 502 na partida)
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/8080 && printf 'GET /actuator/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"UP\"' <&3"]

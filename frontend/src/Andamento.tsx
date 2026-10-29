@@ -1,8 +1,13 @@
+import Carregando from './Esqueleto'
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
 import { avisarUso, config, ETAPAS, motivoDe, type Andamento as Dados } from './estudo'
 
-/** Barra de porcentagem da indexação (regra 14): consulta o andamento a cada poucos segundos e para quando termina ou falha. */
+/**
+ * Barra de porcentagem da indexação: consulta o andamento a cada poucos segundos e para quando termina ou falha.
+ * @param props materialId: material em indexação; aoTerminar: chamado quando fica pronto; aoReenviar: chamado no botão de reenvio após falha.
+ * @returns a barra, ou a mensagem de falha.
+ */
 export default function Andamento({ materialId, aoTerminar, aoReenviar }: { materialId: string; aoTerminar: () => void; aoReenviar: () => void }) {
   const [dados, setDados] = useState<Dados | null>(null)
   const [erro, setErro] = useState(false)
@@ -12,6 +17,10 @@ export default function Andamento({ materialId, aoTerminar, aoReenviar }: { mate
     let vivo = true
     let timer: ReturnType<typeof setTimeout>
     let primeiro = true
+    /**
+     * Consulta o andamento uma vez e agenda a próxima consulta enquanto o material não terminar.
+     * @returns promessa resolvida quando a consulta termina.
+     */
     const consultar = async () => {
       try {
         const d = await api<Dados>(`/materiais/${materialId}/andamento`)
@@ -38,7 +47,7 @@ export default function Andamento({ materialId, aoTerminar, aoReenviar }: { mate
         <button type="button" onClick={tentarDeNovo}>Tentar de novo</button>
       </div>
     )
-  if (!dados) return <p className="sub" role="status">Carregando…</p>
+  if (!dados) return <Carregando blocos={2} />
   if (dados.status === 'falhou')
     return (
       <div role="alert">

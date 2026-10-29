@@ -1,4 +1,4 @@
-"""Sugestão de divisão em tópicos pelo modelo de linguagem (UC05). O backend valida a cobertura e faz o plano B (blocos iguais)."""
+"""Sugestão de divisão em tópicos pelo modelo de linguagem. O backend valida a cobertura e faz o plano B (blocos iguais)."""
 import json
 import logging
 import re
@@ -10,6 +10,13 @@ from nexo_processamento.json_modelo import lista_de_objetos, primeiro_json
 
 @dataclass(frozen=True)
 class Proposta:
+    """Resposta do modelo à divisão em tópicos, já validada.
+
+    Attributes:
+        topicos: lista de `{"nome", "inicio", "fim"}`; vazia quando o modelo não deu uma proposta válida.
+        tokens_entrada: tokens enviados ao modelo.
+        tokens_saida: tokens devolvidos pelo modelo.
+    """
     topicos: list[dict]  # [{"nome", "inicio", "fim"}]; vazio quando o modelo não deu uma proposta válida
     tokens_entrada: int
     tokens_saida: int
@@ -19,7 +26,17 @@ log = logging.getLogger("nexo.processamento")
 
 
 def motivo_invalido(lido: list[dict], total: int, atuais: list[dict] | None = None, lacunas: bool = False) -> str:
-    """Por que a proposta do modelo foi recusada (só estrutura: nada do texto do material vai para o log)."""
+    """Explica por que a proposta do modelo foi recusada (só estrutura: nada do texto do material vai para o log).
+
+    Args:
+        lido: tópicos lidos da resposta do modelo (vazio se a resposta era ilegível).
+        total: quantidade de trechos do material.
+        atuais: divisão atual, quando se reorganiza; None na sugestão inicial.
+        lacunas: True se trechos de fora são permitidos (reorganização).
+
+    Returns:
+        Frase curta com o motivo, para o log de aviso.
+    """
     if not lido:
         return "JSON ilegível, vazio, sem a forma [{nome, inicio}] ou com inícios que voltam atrás"
     esperado = 1
@@ -35,13 +52,34 @@ def motivo_invalido(lido: list[dict], total: int, atuais: list[dict] | None = No
 
 
 def _faixa_ok(t: dict, esperado: int, total: int, lacunas: bool) -> bool:
-    """`esperado` é o primeiro trecho livre; com `lacunas` a faixa pode começar depois dele (trechos de fora, ADR 0042)."""
+    """Confere uma faixa de tópico contra o primeiro trecho ainda livre.
+
+    Args:
+        t: tópico com `nome`, `inicio` e `fim`.
+        esperado: primeiro trecho livre (o fim do tópico anterior mais 1).
+        total: quantidade de trechos do material.
+        lacunas: True se a faixa pode começar depois de `esperado` (trechos de fora).
+
+    Returns:
+        True se a faixa está em ordem, dentro do material e com nome preenchido.
+    """
     comeco = t["inicio"] >= esperado if lacunas else t["inicio"] == esperado
     return comeco and t["inicio"] <= t["fim"] <= total and bool(str(t["nome"]).strip())
 
 
 def cobre(topicos: list[dict], total: int, lacunas: bool = False) -> bool:
-    """Faixas consecutivas de 1 a total, sem lacuna nem sobreposição; com `lacunas`, em ordem e sem sobreposição, podendo deixar trechos de fora."""
+    """Diz se os tópicos cobrem o material de forma válida.
+
+    Sem `lacunas`: faixas consecutivas de 1 a `total`, sem lacuna nem sobreposição. Com `lacunas`: em ordem e sem sobreposição, podendo deixar trechos de fora.
+
+    Args:
+        topicos: tópicos propostos, em ordem.
+        total: quantidade de trechos do material.
+        lacunas: True para aceitar trechos de fora.
+
+    Returns:
+        True se a divisão é válida e não vazia.
+    """
     esperado = 1
     for t in topicos:
         if not _faixa_ok(t, esperado, total, lacunas):
@@ -59,6 +97,16 @@ _FORMATO_INICIOS = (
 
 
 def _prompt(trechos: list[dict]) -> str:
+    """Monta o pedido de sugestão de tópicos para o modelo.
+
+    O modelo informa só onde cada tópico começa; o fim sai do começo do próximo (pedir também o fim fazia o modelo pequeno errar a conta).
+
+    Args:
+        trechos: resumo de cada trecho (`ordem`, `nivel`, `titulo`, `inicio`).
+
+    Returns:
+        O texto do pedido (instruções mais uma linha por trecho).
+    """
     linhas = "\n".join(f'{t["ordem"]}\t{t.get("nivel") or ""}\t{t.get("titulo") or ""}\t{(t.get("inicio") or "")[:120]}' for t in trechos)
     return (
         "Divida o material abaixo em tópicos de estudo (capítulos ou seções). Cada linha é um trecho: ordem, nível do título que abre o trecho "
@@ -71,10 +119,17 @@ def _prompt(trechos: list[dict]) -> str:
 
 
 def _ler_json(texto: str, total: int | None = None, cobrir_inicio: bool = True) -> list[dict]:
-    """
-    Primeiro array JSON da resposta do modelo, no formato [{nome, inicio}] (o `fim` de cada um é o começo do próximo menos 1, e o do último é [total]) ou
-    [{nome, inicio, fim}] (o `fim` informado vale). Lista vazia se não houver nada aproveitável ou se os inícios voltarem atrás.
-    `cobrir_inicio`: o primeiro tópico passa a começar no trecho 1; sem isso o começo que o modelo pulou (capa, sumário) fica de fora.
+    """Lê o primeiro array JSON da resposta do modelo e completa os fins das faixas.
+
+    Aceita `[{nome, inicio}]` (o fim de cada um é o começo do próximo menos 1, e o do último é `total`) ou `[{nome, inicio, fim}]` (o fim informado vale). Início repetido (o modelo partiu o mesmo trecho em dois nomes) fica só o primeiro.
+
+    Args:
+        texto: resposta do modelo.
+        total: quantidade de trechos do material (necessária quando a resposta só traz inícios).
+        cobrir_inicio: se True, o primeiro tópico passa a começar no trecho 1; sem isso o começo que o modelo pulou (capa, sumário) fica de fora.
+
+    Returns:
+        Lista de `{nome, inicio, fim}`; vazia se não houver nada aproveitável ou se os inícios voltarem atrás.
     """
     try:
         itens = primeiro_json(texto, "[", lista_de_objetos) or []
@@ -96,6 +151,17 @@ def _ler_json(texto: str, total: int | None = None, cobrir_inicio: bool = True) 
 
 
 def sugerir(modelo: ModeloLinguagem, trechos: list[dict]) -> Proposta:
+    """Pede ao modelo a divisão inicial do material em tópicos.
+
+    O backend valida a cobertura e faz o plano B (blocos iguais) quando a proposta vem vazia.
+
+    Args:
+        modelo: modelo de linguagem a usar.
+        trechos: resumo de cada trecho (`ordem`, `nivel`, `titulo`, `inicio`).
+
+    Returns:
+        A proposta com os tópicos (vazia se o modelo não cobriu o material sem lacuna nem sobreposição) e os tokens gastos.
+    """
     r = modelo.gerar(_prompt(trechos))
     topicos = _ler_json(r.texto, len(trechos))
     if not cobre(topicos, len(trechos)):
@@ -105,6 +171,17 @@ def sugerir(modelo: ModeloLinguagem, trechos: list[dict]) -> Proposta:
 
 
 def _prompt_refinar(trechos: list[dict], atuais: list[dict]) -> str:
+    """Monta o pedido de reorganização da divisão atual para o modelo.
+
+    Tópicos congelados (com conteúdo gerado) devem ser mantidos exatamente; capa, sumário e referências podem ficar de fora.
+
+    Args:
+        trechos: resumo de cada trecho (`ordem`, `nivel`, `titulo`, `inicio`).
+        atuais: divisão atual (`nome`, `inicio`, `fim`, `congelado`).
+
+    Returns:
+        O texto do pedido (instruções, a divisão atual em JSON e uma linha por trecho).
+    """
     linhas = "\n".join(f'{t["ordem"]}\t{t.get("nivel") or ""}\t{t.get("titulo") or ""}\t{(t.get("inicio") or "")[:80]}' for t in trechos)
     return (
         "Você reorganiza a divisão de um material de estudo em tópicos. Abaixo estão a divisão ATUAL e os trechos do material "
@@ -121,12 +198,32 @@ def _prompt_refinar(trechos: list[dict], atuais: list[dict]) -> str:
 
 
 def congelados_preservados(propostos: list[dict], atuais: list[dict]) -> bool:
+    """Confere se a proposta manteve a faixa de todos os tópicos congelados.
+
+    Args:
+        propostos: tópicos propostos pelo modelo.
+        atuais: divisão atual, com a marca `congelado`.
+
+    Returns:
+        True se cada tópico congelado aparece na proposta com o mesmo início e o mesmo fim.
+    """
     faixas = {(t["inicio"], t["fim"]) for t in propostos}
     return all((a["inicio"], a["fim"]) in faixas for a in atuais if a.get("congelado"))
 
 
 def refinar(modelo: ModeloLinguagem, trechos: list[dict], atuais: list[dict]) -> Proposta:
-    """Reorganização pedida pelo usuário (botão "Reorganizar com IA"). Proposta fora de ordem, com sobreposição ou que mexe num tópico congelado vira vazia; trechos de fora são aceitos (ADR 0042)."""
+    """Reorganiza a divisão atual em tópicos (botão "Reorganizar com IA").
+
+    Proposta fora de ordem, com sobreposição ou que mexe num tópico congelado vira vazia; trechos de fora são aceitos.
+
+    Args:
+        modelo: modelo de linguagem a usar.
+        trechos: resumo de cada trecho (`ordem`, `nivel`, `titulo`, `inicio`).
+        atuais: divisão atual (`nome`, `inicio`, `fim`, `congelado`).
+
+    Returns:
+        A proposta (vazia se inválida) e os tokens gastos.
+    """
     r = modelo.gerar(_prompt_refinar(trechos, atuais))
     topicos = _ler_json(r.texto, len(trechos), cobrir_inicio=False)
     if not cobre(topicos, len(trechos), lacunas=True) or not congelados_preservados(topicos, atuais):
