@@ -8,10 +8,10 @@ const LETRAS = 'ABCDE'
 
 /**
  * Questionário no estilo do NotebookLM: uma questão por tela; tocar numa alternativa a seleciona (dá para trocar) e "Confirmar resposta" grava e mostra o gabarito; "Próxima" avança. Teclado: A a E (ou 1 a 5) selecionam, Enter confirma e depois avança, seta para a direita também avança. O resultado final é de quem usa (`fim`).
- * @param props questoes: questões a responder; fim: recebe acertos, total e a próxima revisão e devolve a tela final.
+ * @param props questoes: questões a responder; fim: recebe acertos, total e a próxima revisão e devolve a tela final; provaId: prova em que as respostas são dadas (opcional; numa prova não há dica); aoEncerrar: chamado quando o servidor diz que a prova terminou (o tempo acabou).
  * @returns a questão corrente, ou a tela final.
  */
-export default function Responder({ questoes, fim }: { questoes: QuestaoParaResponder[]; fim: (r: { acertos: number; total: number; proxima: string | null }) => ReactNode }) {
+export default function Responder({ questoes, fim, provaId, aoEncerrar }: { questoes: QuestaoParaResponder[]; fim: (r: { acertos: number; total: number; proxima: string | null }) => ReactNode; provaId?: string; aoEncerrar?: () => void }) {
   const [i, setI] = useState(0)
   const [escolha, setEscolha] = useState<number | null>(null)
   const [feedback, setFeedback] = useState<RespostaDada | null>(null)
@@ -39,12 +39,13 @@ export default function Responder({ questoes, fim }: { questoes: QuestaoParaResp
     if (feedback || enviando || escolha === null || !q) return
     setEnviando(true); setErro('')
     try {
-      const r = await api<RespostaDada>(`/questoes/${q.id}/respostas`, { metodo: 'POST', corpo: { alternativa: escolha } })
+      const r = await api<RespostaDada>(`/questoes/${q.id}/respostas`, { metodo: 'POST', corpo: provaId ? { alternativa: escolha, provaId } : { alternativa: escolha } })
       setFeedback(r)
       if (r.correta) setAcertos((n) => n + 1)
       setResultados((v) => [...v, r.correta])
       setProxima((p) => (p === null || r.proximaRevisao < p ? r.proximaRevisao : p))
     } catch (x) {
+      if (x instanceof ErroApi && x.codigo === 'prova_encerrada' && aoEncerrar) return aoEncerrar()
       setErro(x instanceof ErroApi ? x.message : 'Não foi possível registrar a resposta. Tente de novo.')
     } finally { setEnviando(false) }
   }
@@ -93,7 +94,7 @@ export default function Responder({ questoes, fim }: { questoes: QuestaoParaResp
       </div>
       <p className="sub quiz-topico">{q.topico}{q.dificuldade && <span className={`nivel nivel-${q.dificuldade}`}>{rotuloDoNivel(q.dificuldade)}</span>}</p>
       <h2 id="titulo-resposta" className="quiz-enunciado" tabIndex={-1} ref={titulo}><span className="oculto">Questão {i + 1} de {questoes.length}: </span>{q.enunciado}</h2>
-      {!feedback && <Dica key={q.id} questaoId={q.id} inicial={q.dica ?? null} />}
+      {!feedback && !provaId && <Dica key={q.id} questaoId={q.id} inicial={q.dica ?? null} />}
       <form onSubmit={confirmar} noValidate>
       <div className="opcoes" role="group" aria-labelledby="titulo-resposta">
         {q.alternativas.map((a, k) => {

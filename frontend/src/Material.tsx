@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { api, ErroApi } from './api'
 import Andamento from './Andamento'
 import Cabecalho from './Cabecalho'
+import ExcluirMaterial from './ExcluirMaterial'
 import { IconeDocumento } from './Icones'
 import { AVISO_IA, avisarUso, capaDe, nomeDoEstudo, type Assunto, type Material as Dados } from './estudo'
 import RevisaoTopicos from './RevisaoTopicos'
@@ -45,9 +46,15 @@ export default function Material({ id, aoIrInicio, aoIrPerfil, aoSair, aoNovoEnv
         ) : !material ? (
           <Carregando />
         ) : material.status === 'pronto' ? (
-          <RevisaoTopicos materialId={id} nomeArquivo={material.nomeArquivo} aoAbrirTopico={aoAbrirTopico} />
+          <>
+            <RevisaoTopicos materialId={id} nomeArquivo={material.nomeArquivo} aoAbrirTopico={aoAbrirTopico} />
+            <ExcluirMaterial materialId={id} nome={nomeDoEstudo(material)} aoExcluir={aoIrInicio} />
+          </>
         ) : (
-          <Andamento materialId={id} aoTerminar={carregar} aoReenviar={aoNovoEnvio} />
+          <>
+            <Andamento materialId={id} aoTerminar={carregar} aoReenviar={aoNovoEnvio} />
+            {material.status === 'falhou' && <ExcluirMaterial materialId={id} nome={nomeDoEstudo(material)} aoExcluir={aoIrInicio} />}
+          </>
         )}
       </main>
     </div>

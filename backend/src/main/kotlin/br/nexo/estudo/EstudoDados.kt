@@ -71,11 +71,12 @@ class EstudoDados(private val jdbc: JdbcTemplate) {
      * @param alternativa índice escolhido.
      * @param correta se acertou.
      * @param quando instante da resposta.
+     * @param provaId prova em que foi dada, ou nulo.
      */
-    fun inserirResposta(id: UUID, usuario: UUID, questaoId: UUID, alternativa: Int, correta: Boolean, quando: Instant) {
+    fun inserirResposta(id: UUID, usuario: UUID, questaoId: UUID, alternativa: Int, correta: Boolean, quando: Instant, provaId: UUID? = null) {
         jdbc.update(
-            "INSERT INTO resposta(id,usuario_id,questao_id,alternativa_escolhida,correta,respondida_em) VALUES (?,?,?,?,?,?)",
-            id, usuario, questaoId, alternativa, correta, Timestamp.from(quando),
+            "INSERT INTO resposta(id,usuario_id,questao_id,alternativa_escolhida,correta,respondida_em,prova_id) VALUES (?,?,?,?,?,?,?)",
+            id, usuario, questaoId, alternativa, correta, Timestamp.from(quando), provaId,
         )
     }
 

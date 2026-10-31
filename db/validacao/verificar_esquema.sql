@@ -91,6 +91,10 @@ SELECT t_ok('concluída com 100% e questões repetidas contadas',
 SELECT t_ok('duas provas separadas com o mesmo grupo_id',
  $q$INSERT INTO prova(id,usuario_id,quantidade_solicitada,status,grupo_id) VALUES ('1000000c-0000-0000-0000-00000000000c','aaaaaaaa-0000-0000-0000-000000000001',5,'gerada','10000010-0000-0000-0000-000000000010'),('1000000d-0000-0000-0000-00000000000d','aaaaaaaa-0000-0000-0000-000000000001',5,'gerada','10000010-0000-0000-0000-000000000010')$q$);
 SELECT t_eq('provas do grupo', (SELECT count(*) FROM prova WHERE grupo_id='10000010-0000-0000-0000-000000000010'), 2);
+SELECT t_err('prova em andamento sem instante de início (V12)', $q$INSERT INTO prova(id,usuario_id,quantidade_solicitada,status) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001',5,'em_andamento')$q$);
+SELECT t_err('prova gerada com instante de início (V12)', $q$INSERT INTO prova(id,usuario_id,quantidade_solicitada,status,iniciada_em) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001',5,'gerada',now())$q$);
+SELECT t_err('limite de tempo zero (V12)', $q$INSERT INTO prova(id,usuario_id,quantidade_solicitada,status,limite_minutos) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001',5,'gerada',0)$q$);
+SELECT t_ok('prova iniciada com limite de tempo (V12)', $q$INSERT INTO prova(id,usuario_id,quantidade_solicitada,status,limite_minutos,iniciada_em) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001',5,'em_andamento',30,now())$q$);
 
 -- 4b) autenticação (V2): sessões, tokens de conta e bloqueio de login
 SELECT t_ok('sessão de refresh gravada',

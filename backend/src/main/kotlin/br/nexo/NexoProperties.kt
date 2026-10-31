@@ -23,6 +23,7 @@ data class NexoProperties(
     val revisao: Revisao,
     val painel: Painel,
     val chat: Chat,
+    val prova: Prova,
     val processamento: Processamento,
     val material: Material,
     val geracao: Geracao,
@@ -48,6 +49,9 @@ data class NexoProperties(
 
     /** Chat com o tutor: tamanho máximo da mensagem, quantas falas anteriores vão ao modelo, quantas mensagens um tópico guarda e os cortes de tamanho (a resposta gravada e cada fala reenviada, que o serviço de IA limita a 4000 caracteres). */
     data class Chat(val mensagemMaxCaracteres: Int, val historicoEnviado: Int, val mensagensPorTopico: Int, val respostaMaxCaracteres: Int, val falaEnviadaMaxCaracteres: Int)
+
+    /** Provas: máximo de questões por prova, máximo de assuntos por pedido e maior limite de tempo aceito (em minutos). */
+    data class Prova(val quantidadeMaxima: Int, val assuntosMaximos: Int, val limiteMinutosMaximo: Int)
 
     /** Painel semanal: janela padrão e máxima em semanas, mínimo de respostas para um tópico entrar nos mais fracos e quantos mostrar. */
     data class Painel(val semanas: Int, val semanasMaximo: Int, val minimoRespostas: Int, val fracos: Int, val topicosRecentes: Int)

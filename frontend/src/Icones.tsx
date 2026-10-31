@@ -28,6 +28,14 @@ export function IconeRevisar({ tam }: { tam?: number }) {
   return <Traco tam={tam}><><path d="M20 12a8 8 0 1 1-2.6-5.9" /><path d="M20 4v4.5h-4.5" /><path d="m9 12 2.2 2.2L15.5 10" /></></Traco>
 }
 /**
+ * Ícone de prova (folha com marcações), decorativo (o rótulo de texto acompanha).
+ * @param props tam: tamanho em pixels (padrão 20).
+ * @returns o SVG do ícone.
+ */
+export function IconeProva({ tam }: { tam?: number }) {
+  return <Traco tam={tam}><><path d="M7 3.5h8l3.5 3.5v13a.5.5 0 0 1-.5.5H7a.5.5 0 0 1-.5-.5V4a.5.5 0 0 1 .5-.5Z" /><path d="M14.5 3.5V7H18" /><path d="m9 12 1.2 1.2L12.5 11" /><path d="M9 17h6" /></></Traco>
+}
+/**
  * Ícone de desempenho (barras), decorativo (o rótulo de texto acompanha).
  * @param props tam: tamanho em pixels (padrão 20).
  * @returns o SVG do ícone.

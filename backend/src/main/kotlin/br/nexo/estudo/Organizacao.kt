@@ -56,8 +56,9 @@ data class PastaDto(val id: UUID, val nome: String, val padrao: Boolean)
 data class NomeSugeridoDto(val nome: String)
 
 /**
- * Pastas (os "assuntos" do projeto) e nome do estudo. A pasta de um estudo é a dos seus tópicos: mover um material move todos os tópicos dele
- * (a revisão de tópicos exige que fiquem juntos); o tópico livre se move sozinho. "Geral" é a pasta padrão: não se renomeia nem se exclui.
+ * Pastas (os "assuntos" do projeto) e nome do estudo. Mover um material move todos os tópicos dele; um tópico, de material ou livre, também pode mudar
+ * de pasta sozinho (a revisão da divisão de um material exige que os tópicos dele voltem a ficar juntos). Tópico usado como limite de uma prova não muda de pasta.
+ * "Geral" é a pasta padrão: não se renomeia nem se exclui.
  */
 @Service
 class Organizacao(
@@ -141,11 +142,12 @@ class Organizacao(
     fun excluir(id: UUID) = tx.executeWithoutResult {
         val p = pasta(id)
         if (p.padrao) throw ErroNegocio(HttpStatus.CONFLICT, "A pasta padrão \"Geral\" não pode ser excluída.", "assunto_padrao")
+        // Conferir antes de mover: tópico-limite de prova não pode sair da pasta, e o banco recusaria já na mudança do tópico.
+        if (jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM prova_assunto WHERE assunto_id = ?)", Boolean::class.java, id)!!)
+            throw ErroNegocio(HttpStatus.CONFLICT, "Esta pasta está em uso por uma prova e não pode ser excluída.", "assunto_em_uso")
         val geral = pasta(padrao()).id
         anexar(jdbc.queryForList("SELECT id FROM topico WHERE assunto_id = ? ORDER BY ordem", UUID::class.java, id).filterNotNull(), geral)
-        try { jdbc.update("DELETE FROM assunto WHERE id = ?", id) } catch (e: DataIntegrityViolationException) {
-            throw ErroNegocio(HttpStatus.CONFLICT, "Esta pasta está em uso por uma prova e não pode ser excluída.", "assunto_em_uso")
-        }
+        jdbc.update("DELETE FROM assunto WHERE id = ?", id)
     }
 
     /**
@@ -159,11 +161,26 @@ class Organizacao(
     }
 
     /**
+     * Recusa mover tópicos que são o limite de alguma prova: a prova guarda o tópico dentro da pasta em que foi montada.
+     * @param topicos tópicos que mudariam de pasta.
+     * @throws ErroNegocio 409 `topico_limite_de_prova` com o nome do primeiro tópico e o total de provas afetadas.
+     */
+    private fun recusarSeLimiteDeProva(topicos: List<UUID>) {
+        topicos.forEach { id ->
+            val provas = jdbc.queryForObject("SELECT count(DISTINCT prova_id) FROM prova_assunto WHERE topico_limite_id = ?", Int::class.java, id)!!
+            if (provas > 0) {
+                val nome = jdbc.queryForObject("SELECT nome FROM topico WHERE id = ?", String::class.java, id)
+                throw ErroNegocio(HttpStatus.CONFLICT, "O tópico \"$nome\" é o limite de $provas prova${if (provas > 1) "s" else ""} e não pode mudar de pasta.", "topico_limite_de_prova", mapOf("provas" to provas))
+            }
+        }
+    }
+
+    /**
      * Move um material (todos os seus tópicos) para uma pasta.
      * @param materialId material.
      * @param assuntoId pasta de destino; nulo = "Geral".
      * @return a pasta de destino.
-     * @throws ErroNegocio 404 se o material não existir; 409 se ainda não tiver tópicos.
+     * @throws ErroNegocio 404 se o material não existir; 409 se ainda não tiver tópicos ou se algum deles for o limite de uma prova.
      */
     fun moverMaterial(materialId: UUID, assuntoId: UUID?): PastaDto = tx.execute {
         dados.material(materialId) ?: throw ErroNegocio(HttpStatus.NOT_FOUND, "Material não encontrado.", "nao_encontrado")
@@ -174,24 +191,26 @@ class Organizacao(
         )
         if (topicos.isEmpty()) throw ErroNegocio(HttpStatus.CONFLICT, "O material ainda não tem tópicos. Espere o processamento terminar.", "material_nao_pronto")
         val fora = topicos.filter { it.third != destino.id }
+        recusarSeLimiteDeProva(fora.map { it.first })
         if (fora.isNotEmpty()) anexar(fora.map { it.first }, destino.id)
         nomeDe(destino.id)
     }!!
 
     /**
-     * Move um tópico livre para uma pasta.
-     * @param topicoId tópico livre.
+     * Move um tópico (livre ou de material) para o fim de outra pasta.
+     * @param topicoId tópico.
      * @param assuntoId pasta de destino; nulo = "Geral".
      * @return a pasta de destino.
-     * @throws ErroNegocio 404 se o tópico não existir; 409 se for tópico de material.
+     * @throws ErroNegocio 404 se o tópico ou a pasta não existirem; 409 se o tópico for o limite de uma prova.
      */
-    fun moverTopicoLivre(topicoId: UUID, assuntoId: UUID?): PastaDto = tx.execute {
-        jdbc.query("SELECT assunto_id FROM topico WHERE id = ?", { rs, _ -> rs.getObject(1, UUID::class.java) }, topicoId).firstOrNull()
+    fun moverTopico(topicoId: UUID, assuntoId: UUID?): PastaDto = tx.execute {
+        val atual = jdbc.query("SELECT assunto_id FROM topico WHERE id = ?", { rs, _ -> rs.getObject(1, UUID::class.java) }, topicoId).firstOrNull()
             ?: throw ErroNegocio(HttpStatus.NOT_FOUND, "Tópico não encontrado.", "nao_encontrado")
-        if (jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM topico_fonte WHERE topico_id = ?)", Boolean::class.java, topicoId)!!)
-            throw ErroNegocio(HttpStatus.CONFLICT, "Tópico de material muda de pasta junto com o material.", "topico_de_material")
         val destino = pasta(assuntoId ?: padrao())
-        anexar(listOf(topicoId), destino.id)
+        if (destino.id != atual) {
+            recusarSeLimiteDeProva(listOf(topicoId))
+            anexar(listOf(topicoId), destino.id)
+        }
         nomeDe(destino.id)
     }!!
 
@@ -290,13 +309,13 @@ class OrganizacaoController(private val org: Organizacao) {
     fun moverMaterial(@PathVariable id: UUID, @RequestBody r: MoverRequest) = org.moverMaterial(id, r.assuntoId)
 
     /**
-     * Move um tópico livre para uma pasta.
+     * Move um tópico (livre ou de material) para o fim de outra pasta.
      * @param id tópico.
      * @param r pasta de destino.
      * @return a pasta de destino.
      */
     @PutMapping("/topicos/{id}/assunto")
-    fun moverTopico(@PathVariable id: UUID, @RequestBody r: MoverRequest) = org.moverTopicoLivre(id, r.assuntoId)
+    fun moverTopico(@PathVariable id: UUID, @RequestBody r: MoverRequest) = org.moverTopico(id, r.assuntoId)
 
     /**
      * Renomeia o estudo.

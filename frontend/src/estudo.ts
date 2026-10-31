@@ -1,8 +1,8 @@
 // Tipos e regras puras do fluxo de estudo. Sem React: testadas em estudo.test.ts.
 /** Pasta (assunto) do usuário. */
-export type Assunto = { id: string; nome: string; padrao: boolean }
-/** Material enviado, como a API devolve. `titulo` é o nome dado ao estudo; `assuntoId` é a pasta (nulo até haver tópicos); `gerando` marca geração em curso. */
-export type Material = { id: string; nomeArquivo: string; status: 'pendente' | 'processando' | 'pronto' | 'falhou'; motivoFalha: string | null; paginas: number | null; criadoEm: string; gerando?: boolean; titulo?: string | null; assuntoId?: string | null }
+export type Assunto = { id: string; nome: string; padrao: boolean; topicos?: number; materiais?: number }
+/** Material enviado, como a API devolve. `titulo` é o nome dado ao estudo; `assuntoId` é a pasta do primeiro tópico (nulo até haver tópicos) e `assuntoIds` todas as pastas onde ele tem tópicos; `gerando` marca geração em curso. */
+export type Material = { id: string; nomeArquivo: string; status: 'pendente' | 'processando' | 'pronto' | 'falhou'; motivoFalha: string | null; paginas: number | null; criadoEm: string; gerando?: boolean; titulo?: string | null; assuntoId?: string | null; assuntoIds?: string[] }
 /** Andamento da indexação: status, etapa corrente e percentual (0 a 100). */
 export type Andamento = { status: Material['status']; etapa: string; percentual: number; motivoFalha: string | null }
 /** Tópico de um material, com a faixa de trechos, a prévia e se está congelado (`temConteudo`). */
@@ -66,6 +66,26 @@ export function rotuloApoio(apoio: Apoio[]): string {
     return `${nome}, ${ordens.length > 1 ? 'trechos' : 'trecho'} ${lista(ordens)}`
   }).join('; ')
 }
+/** Assunto de uma prova, com o tópico-limite escolhido (se houver). */
+export type ProvaAssunto = { id: string; nome: string; topicoLimiteId: string | null; topicoLimite: string | null }
+/** Prova resumida: andamento, limite de tempo (`prazo` só existe depois de iniciada) e assuntos. Provas do mesmo pedido têm o mesmo `grupoId`. */
+export type ProvaResumo = {
+  id: string; grupoId: string | null; status: 'gerada' | 'em_andamento' | 'concluida'; quantidade: number; respondidas: number; acertos: number; limiteMinutos: number | null
+  iniciadaEm: string | null; prazo: string | null; concluidaEm: string | null; criadaEm: string; assuntos: ProvaAssunto[]
+}
+/** Questão de uma prova; o gabarito só vem depois de respondida. */
+export type ProvaQuestao = {
+  ordem: number; id: string; topicoId: string; topico: string; assunto: string; enunciado: string; alternativas: string[]; dica: string | null; dificuldade: Dificuldade
+  respondida: boolean; alternativaEscolhida: number | null; correta: boolean | null; respostaCorreta: number | null
+}
+/** Prova aberta: cabeçalho, relógio do servidor (`agora`) e questões na ordem. */
+export type ProvaAberta = { prova: ProvaResumo; agora: string; questoes: ProvaQuestao[] }
+/** Resposta de `POST /provas`: as provas criadas e o grupo (nulo em prova única). */
+export type ProvasCriadas = { grupoId: string | null; provas: ProvaResumo[] }
+/** Tópico na lista de uma pasta: material de origem, se está congelado e em quantas provas é o limite. */
+export type TopicoDaPasta = { id: string; nome: string; ordem: number; livre: boolean; temConteudo: boolean; limiteDeProvas: number; totalQuestoes: number; materiais: { id: string; nome: string }[] }
+/** Fonte de um tópico: faixa de trechos de um material. */
+export type FonteDoTopico = { materialId: string; nome: string; inicio: number; fim: number }
 export const QUESTOES_POR_PEDIDO = 10
 /**
  * Formata uma taxa como porcentagem.
@@ -111,7 +131,7 @@ export const MOTIVOS: Record<string, string> = {
   paginas_excedidas: 'O material passa do limite de páginas.',
   interrompido: 'O processamento foi interrompido. Envie o arquivo novamente.',
   falha_ia: 'O serviço de processamento falhou. Envie o arquivo novamente em instantes.',
-  configuracao_ia: 'O serviço de IA não está configurado ou o provedor recusou a conta (chave, modelo, preço ou crédito). Reenviar o arquivo não resolve: confira a configuração (README) e os logs do servidor.',
+  configuracao_ia: 'O serviço de IA não está configurado ou o provedor recusou a conta (chave, modelo, preço ou crédito). Reenviar o arquivo não resolve: confira a configuração e os logs do servidor.',
   erro_interno: 'Ocorreu um erro inesperado. Envie o arquivo novamente.',
 }
 
@@ -369,3 +389,57 @@ export const nomeDoEstudo = (m: { titulo?: string | null; nomeArquivo: string })
  * @returns número da capa, de 0 a 7.
  */
 export const capaDe = (texto: string) => [...texto].reduce((n, c) => n + c.charCodeAt(0), 0) % 8
+
+/**
+ * Provas do mesmo pedido juntas: as separadas dividem o `grupoId`; as demais ficam sozinhas. Mantém a ordem (da mais nova à mais antiga) pelo primeiro item de cada grupo.
+ * @param provas provas como a API devolve.
+ * @returns grupos de provas, cada um com uma ou mais provas.
+ */
+export function agruparProvas(provas: ProvaResumo[]): ProvaResumo[][] {
+  const grupos = new Map<string, ProvaResumo[]>()
+  provas.forEach((p) => grupos.set(p.grupoId ?? p.id, [...(grupos.get(p.grupoId ?? p.id) ?? []), p]))
+  return [...grupos.values()]
+}
+
+/**
+ * Tempo restante formatado: `mm:ss`, ou `h:mm:ss` a partir de uma hora.
+ * @param segundos segundos restantes (valores negativos contam como zero).
+ * @returns o texto do relógio.
+ */
+export function relogio(segundos: number): string {
+  const t = Math.max(0, Math.floor(segundos))
+  const h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), s = t % 60
+  const mm = String(m).padStart(2, '0'), ss = String(s).padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
+}
+
+/**
+ * Nova ordem de uma lista depois de mover um item.
+ * @param ids ids na ordem atual.
+ * @param de posição do item movido.
+ * @param para posição de destino.
+ * @returns a lista reordenada (a mesma, se as posições forem iguais ou inválidas).
+ */
+export function mover<T>(ids: T[], de: number, para: number): T[] {
+  if (de === para || de < 0 || para < 0 || de >= ids.length || para >= ids.length) return ids
+  const copia = [...ids]
+  const [item] = copia.splice(de, 1)
+  copia.splice(para, 0, item)
+  return copia
+}
+
+/**
+ * Questões que a prova pode sortear num assunto: as dos tópicos até o tópico-limite (todos, sem limite).
+ * @param topicos tópicos do assunto, na ordem.
+ * @param limite id do tópico-limite, ou vazio para todos.
+ * @returns o total de questões elegíveis.
+ */
+export function disponiveis(topicos: TopicoDaPasta[], limite?: string): number {
+  const fim = limite ? topicos.find((t) => t.id === limite)?.ordem ?? Infinity : Infinity
+  return topicos.filter((t) => t.ordem <= fim).reduce((n, t) => n + t.totalQuestoes, 0)
+}
+
+/** Tópico no histórico: de qualquer pasta, de material ou livre. */
+export type TopicoHistorico = { id: string; nome: string; assuntoId: string; livre: boolean; materiais: { id: string; nome: string }[]; totalQuestoes: number; temResumo: boolean; criadoEm: string }
+/** Tópico que pode receber uma faixa de trechos de um material. */
+export type TopicoCandidato = { id: string; nome: string }

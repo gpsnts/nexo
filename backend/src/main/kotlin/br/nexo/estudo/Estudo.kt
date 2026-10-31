@@ -20,8 +20,13 @@ import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 import java.util.UUID
 
-/** `JsonNode` e não `Int`: o Jackson converteria 1.5 em 1 e a resposta cairia na alternativa errada. */
-data class RespostaRequest(val alternativa: tools.jackson.databind.JsonNode? = null)
+/**
+ * Corpo de `POST /questoes/{id}/respostas`.
+ * `alternativa` é `JsonNode` e não `Int`: o Jackson converteria 1.5 em 1 e a resposta cairia na alternativa errada.
+ * @property alternativa índice da alternativa escolhida.
+ * @property provaId prova em que a questão está sendo respondida; nulo = resposta avulsa ou de revisão.
+ */
+data class RespostaRequest(val alternativa: tools.jackson.databind.JsonNode? = null, val provaId: java.util.UUID? = null)
 /**
  * Resposta de uma questão.
  * @property correta se acertou.
@@ -114,6 +119,7 @@ class Estudo(
     private val tx: TransactionTemplate,
     private val relogio: Clock,
     private val json: JsonMapper,
+    private val provas: Provas,
 ) {
     /**
      * Data de hoje no fuso configurado.
@@ -125,16 +131,19 @@ class Estudo(
      * Registra a resposta, agenda a próxima revisão (SM-2) e devolve o resultado, numa transação.
      * @param questaoId questão respondida.
      * @param alternativa índice da alternativa escolhida.
+     * @param provaId prova em que a questão é respondida, ou nulo.
      * @return se acertou, qual era a correta e a próxima revisão.
-     * @throws ErroNegocio 404 se a questão não for do usuário; 400 se a alternativa não existir.
+     * @throws ErroNegocio 404 se a questão ou a prova não forem do usuário; 400 se a alternativa não existir; 409 se a prova terminou ou a questão já foi respondida nela.
      */
-    fun responder(questaoId: UUID, alternativa: Int): RespostaDto = tx.execute {
+    fun responder(questaoId: UUID, alternativa: Int, provaId: UUID? = null): RespostaDto = tx.execute {
         val q = dados.questao(questaoId) ?: throw ErroNegocio(HttpStatus.NOT_FOUND, "Questão não encontrada.", "nao_encontrado")
         if (alternativa !in 0 until q.alternativas) throw ErroNegocio(HttpStatus.BAD_REQUEST, "Escolha uma das alternativas.", "dados_invalidos")
         val uid = UsuarioAtual.id()!!
         val hoje = hoje()
         val correta = alternativa == q.respostaCorreta
-        dados.inserirResposta(UUID.randomUUID(), uid, questaoId, alternativa, correta, Instant.now(relogio))
+        if (provaId != null) provas.aceitarResposta(provaId, questaoId)
+        dados.inserirResposta(UUID.randomUUID(), uid, questaoId, alternativa, correta, Instant.now(relogio), provaId)
+        if (provaId != null) provas.concluirSeCompleta(provaId)
         val p = props.revisao
         val (atual, primeira) = dados.travarAgendamento(uid, questaoId, Agendamento(p.repeticoesInicial, p.intervaloInicial, p.fatorInicial, hoje, hoje))
         val novo = reagendar(atual, primeira, correta, hoje, p)
@@ -194,11 +203,11 @@ class EstudoController(private val estudo: Estudo) {
     /**
      * Responde a uma questão.
      * @param id questão.
-     * @param r alternativa escolhida (número inteiro).
+     * @param r alternativa escolhida (número inteiro) e, se for o caso, a prova.
      * @return o resultado da resposta.
      */
     @PostMapping("/questoes/{id}/respostas")
-    fun responder(@PathVariable id: UUID, @RequestBody r: RespostaRequest) = estudo.responder(id, r.alternativa?.takeIf { it.isInt }?.asInt() ?: -1)
+    fun responder(@PathVariable id: UUID, @RequestBody r: RespostaRequest) = estudo.responder(id, r.alternativa?.takeIf { it.isInt }?.asInt() ?: -1, r.provaId)
 
     /**
      * Sessão de revisão do dia.

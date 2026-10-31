@@ -8,7 +8,7 @@ test('tópico de material: gera resumo e questões com barra, grava só as aprov
   await expect(page.getByRole('heading', { name: 'Tópicos do material' })).toBeVisible({ timeout: 45_000 })
   await page.getByRole('button', { name: 'Estudar o tópico 1: resumo e questões' }).click()
   await expect(page).toHaveURL(/\/topicos\/[0-9a-f-]{36}/)
-  await expect(page.getByText(/limites deste tópico ficam fixos/)).toBeVisible()
+  await expect(page.getByText(/limites e as fontes deste tópico ficam fixos/)).toBeVisible()
 
   await page.getByRole('button', { name: 'Gerar resumo' }).click()
   await expect(page.getByText(/Resumo de demonstração/)).toBeVisible({ timeout: 30_000 })

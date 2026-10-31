@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api, ErroApi } from './api'
 import type { Assunto } from './estudo'
+import { irPara, urlPasta } from './rotas'
 
 export const TODAS = 'todas'
 
@@ -58,10 +59,14 @@ export default function Pastas({ pastas, atual, aoEscolher, aoMudar }: { pastas:
         <li><button type="button" className="chip" aria-pressed={atual === TODAS} onClick={() => aoEscolher(TODAS)}>Todos</button></li>
         {pastas.map((p) => <li key={p.id}><button type="button" className="chip" aria-pressed={atual === p.id} onClick={() => aoEscolher(p.id)}>{p.nome}</button></li>)}
       </ul>
-      {selecionada && !selecionada.padrao && modo === null && (
+      {selecionada && selecionada.topicos !== undefined && (
+        <p className="sub" role="status">{selecionada.topicos} {selecionada.topicos === 1 ? 'tópico' : 'tópicos'}{selecionada.materiais ? ` de ${selecionada.materiais} ${selecionada.materiais === 1 ? 'material' : 'materiais'}` : ''} nesta pasta.</p>
+      )}
+      {selecionada && modo === null && (
         <div className="acoes-linha">
-          <button type="button" className="secundario" onClick={() => abrir('renomear')} aria-label={`Renomear a pasta ${selecionada.nome}`}>Renomear pasta</button>
-          <button type="button" className="secundario" onClick={() => abrir('excluir')} aria-label={`Excluir a pasta ${selecionada.nome}`}>Excluir pasta</button>
+          <button type="button" className="secundario" onClick={() => irPara(urlPasta(selecionada.id))} aria-label={`Organizar os tópicos da pasta ${selecionada.padrao ? 'Geral' : selecionada.nome}`}>Organizar tópicos</button>
+          {!selecionada.padrao && <button type="button" className="secundario" onClick={() => abrir('renomear')} aria-label={`Renomear a pasta ${selecionada.nome}`}>Renomear pasta</button>}
+          {!selecionada.padrao && <button type="button" className="secundario" onClick={() => abrir('excluir')} aria-label={`Excluir a pasta ${selecionada.nome}`}>Excluir pasta</button>}
         </div>
       )}
       {(modo === 'criar' || modo === 'renomear') && (

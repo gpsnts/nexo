@@ -1,7 +1,7 @@
 import Carregando from './Esqueleto'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, ErroApi } from './api'
-import { AVISO_IA, avisarUso, ajustar, criarNaLacuna, dividir, errosDeNome, excluir, faixasDe, igual, lacunas, novaChave, rotuloPaginas, unir, umSo, type Faixa, type Rascunho, type Topico, type Trecho } from './estudo'
+import { AVISO_IA, avisarUso, ajustar, criarNaLacuna, dividir, errosDeNome, excluir, faixasDe, igual, lacunas, novaChave, rotuloPaginas, unir, umSo, type Faixa, type Rascunho, type Topico, type TopicoCandidato, type Trecho } from './estudo'
 import { focarPrimeiroInvalido } from './validacao'
 
 /**
@@ -20,6 +20,9 @@ export default function RevisaoTopicos({ materialId, nomeArquivo, aoAbrirTopico 
   const [pensando, setPensando] = useState(false) // a IA está montando o rascunho
   const [avisoIa, setAvisoIa] = useState('')
   const [errosNome, setErrosNome] = useState<Record<number, string>>({})
+  const [candidatos, setCandidatos] = useState<TopicoCandidato[]>([])
+  const [alvo, setAlvo] = useState('')
+  const [associando, setAssociando] = useState(false)
   const secao = useRef<HTMLElement>(null)
 
   const carregar = useCallback(
@@ -28,6 +31,9 @@ export default function RevisaoTopicos({ materialId, nomeArquivo, aoAbrirTopico 
   )
   useEffect(() => { carregar() }, [carregar])
   useEffect(() => { api<(number | null)[]>(`/materiais/${materialId}/paginas`).then(setPaginas).catch(() => {}) }, [materialId]) // só enfeite: sem páginas a tela mostra só os trechos
+
+  // Tópicos da mesma pasta que aceitam receber os trechos de fora; recarrega depois de cada gravação.
+  useEffect(() => { api<TopicoCandidato[]>(`/materiais/${materialId}/topicos-candidatos`).then(setCandidatos).catch(() => setCandidatos([])) }, [materialId, salvo])
 
   const alterado = salvo !== null && !igual(faixas, salvo)
   // Sair da página com alterações não salvas: o navegador pergunta antes de descartar (Voltar e links internos não passam por aqui).
@@ -48,6 +54,20 @@ export default function RevisaoTopicos({ materialId, nomeArquivo, aoAbrirTopico 
   // `paginas` tem um item por trecho; se não carregou, o último trecho usado é o melhor que se sabe
   const total = Math.max(paginas.length, faixas[faixas.length - 1]?.fim ?? 0)
   const fora = lacunas(faixas, total)
+  /**
+   * Acrescenta uma faixa de trechos de fora a um tópico que já existe (o servidor confere sobreposição e congelamento).
+   * @param a primeiro trecho da faixa.
+   * @param b último trecho da faixa.
+   * @returns promessa resolvida quando termina.
+   */
+  async function associar(a: number, b: number) {
+    const nome = candidatos.find((c) => c.id === alvo)?.nome ?? ''
+    setAssociando(true); setErro(''); setOk('')
+    try {
+      await api(`/topicos/${alvo}/fontes`, { corpo: { materialId, inicio: a, fim: b } })
+      await carregar(); setAlvo(''); setOk(`${a === b ? `Trecho ${a} acrescentado` : `Trechos ${a} a ${b} acrescentados`} ao tópico "${nome}".`)
+    } catch (x) { setErro(x instanceof ErroApi ? x.message : 'Não foi possível acrescentar os trechos. Tente de novo.') } finally { setAssociando(false) }
+  }
   /**
    * Troca as faixas em edição e limpa mensagens.
    * @param novo novas faixas.
@@ -138,6 +158,20 @@ export default function RevisaoTopicos({ materialId, nomeArquivo, aoAbrirTopico 
           <div className="acoes-linha">
             {fora.map(([a, b]) => <button key={a} type="button" className="secundario" onClick={() => mudar(criarNaLacuna(faixas, a, b))}>{a === b ? `Voltar a usar o trecho ${a}` : `Voltar a usar os trechos ${a} a ${b}`}</button>)}
           </div>
+          {!alterado && candidatos.length > 0 && (
+            <div className="associar">
+              <div className="campo">
+                <label htmlFor="alvo-fonte">Ou use estes trechos em um tópico que já existe nesta pasta</label>
+                <select id="alvo-fonte" value={alvo} onChange={(e) => setAlvo(e.target.value)}>
+                  <option value="">Escolha o tópico…</option>
+                  {candidatos.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                </select>
+              </div>
+              <div className="acoes-linha">
+                {fora.map(([a, b]) => <button key={`u${a}`} type="button" className="secundario" disabled={!alvo || associando} onClick={() => associar(a, b)}>{a === b ? `Usar o trecho ${a} nesse tópico` : `Usar os trechos ${a} a ${b} nesse tópico`}</button>)}
+              </div>
+            </div>
+          )}
         </div>
       )}
       <ol className="topicos">

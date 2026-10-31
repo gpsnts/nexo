@@ -14,8 +14,8 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
-/** `titulo`: nome dado ao estudo (nulo = vale o nome do arquivo); `assuntoId`: a pasta (nulo enquanto o material não tem tópicos). */
-data class MaterialDto(val id: UUID, val nomeArquivo: String, val status: String, val motivoFalha: String?, val paginas: Int?, val criadoEm: Instant, val gerando: Boolean = false, val titulo: String? = null, val assuntoId: UUID? = null)
+/** `titulo`: nome dado ao estudo (nulo = vale o nome do arquivo); `assuntoId`: a pasta do primeiro tópico (nulo enquanto não há tópicos); `assuntoIds`: todas as pastas com tópicos do material. */
+data class MaterialDto(val id: UUID, val nomeArquivo: String, val status: String, val motivoFalha: String?, val paginas: Int?, val criadoEm: Instant, val gerando: Boolean = false, val titulo: String? = null, val assuntoId: UUID? = null, val assuntoIds: List<UUID> = emptyList())
 /**
  * Andamento da indexação, para a barra de progresso.
  * @property status status do material.
@@ -150,7 +150,7 @@ class MaterialService(
      * @param m linha do material.
      * @return o DTO.
      */
-    private fun dto(m: MaterialLinha) = MaterialDto(m.id, m.nomeArquivo, m.status, m.motivoFalha, m.paginas, m.criadoEm, false, m.titulo, m.assuntoId)
+    private fun dto(m: MaterialLinha) = MaterialDto(m.id, m.nomeArquivo, m.status, m.motivoFalha, m.paginas, m.criadoEm, false, m.titulo, m.assuntoId, m.assuntoIds)
 
     /**
      * Barra de progresso: indexação vale 0 a 85 e a sugestão de tópicos 85 a 100. Detecta tarefa perdida (reinício) sem varrer outras contas.
@@ -215,6 +215,23 @@ class MaterialService(
     fun paginas(id: UUID): List<Int?> = tx.execute {
         if (dados.material(id) == null) throw naoEncontrado()
         dados.paginasDosTrechos(id)
+    }
+
+    /**
+     * Exclui o material: anula a referência nos registros de operação e apaga o material (fontes, trechos e ligações das questões saem em cascata) numa transação;
+     * o arquivo só é removido depois do commit, com nova tentativa se falhar. Tópicos, questões, provas e respostas ficam.
+     * @param id material.
+     * @throws ErroNegocio 404 se não existir; 409 se estiver sendo processado ou alimentando uma geração em andamento.
+     */
+    fun excluir(id: UUID) {
+        val uid = UsuarioAtual.id() ?: throw ErroNegocio(HttpStatus.UNAUTHORIZED, "Não autenticado.", "nao_autenticado")
+        tx.executeWithoutResult {
+            val m = dados.material(id) ?: throw naoEncontrado()
+            if (m.status in ABERTOS) throw ErroNegocio(HttpStatus.CONFLICT, "O material ainda está sendo processado. Espere terminar para excluir.", "material_processando")
+            if (id in geracaoDados.materiaisGerando(props.geracao.pulsoMaximo.seconds)) throw ErroNegocio(HttpStatus.CONFLICT, "Há um resumo ou questões sendo gerados a partir deste material. Espere terminar ou cancele a geração.", "material_gerando")
+            remocao.depoisDoCommit(chaves = listOfNotNull(dados.excluirMaterial(id)))
+        }
+        auditoria.registrar("material_excluido", uid, "material=$id")
     }
 
     /**

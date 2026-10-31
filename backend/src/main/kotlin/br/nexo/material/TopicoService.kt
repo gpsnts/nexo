@@ -3,6 +3,8 @@ package br.nexo.material
 import br.nexo.NexoProperties
 import br.nexo.conta.ErroNegocio
 import br.nexo.seguranca.UsuarioAtual
+import jakarta.validation.constraints.Min
+import jakarta.validation.constraints.NotEmpty
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.http.HttpStatus
 import org.springframework.jdbc.core.JdbcTemplate
@@ -22,6 +24,63 @@ import java.util.UUID
  * @property temConteudo se já tem resumo ou questões (congelado).
  */
 data class TopicoDto(val id: UUID, val assuntoId: UUID, val nome: String, val ordem: Int, val inicio: Int?, val fim: Int?, val previa: String?, val temConteudo: Boolean = false)
+
+/**
+ * Material que alimenta um tópico.
+ * @property id material.
+ * @property nome título do estudo, ou o nome do arquivo.
+ */
+data class MaterialRefDto(val id: UUID, val nome: String)
+/**
+ * Tópico na lista de uma pasta.
+ * @property id tópico.
+ * @property nome nome do tópico.
+ * @property ordem posição na pasta.
+ * @property livre se não tem nenhum material (tópico livre).
+ * @property temConteudo se já tem resumo ou questões (as fontes ficam congeladas).
+ * @property limiteDeProvas em quantas provas é o tópico-limite (se maior que zero, não muda de pasta).
+ * @property totalQuestoes questões do tópico (as que uma prova pode sortear).
+ * @property materiais materiais que o alimentam.
+ */
+data class TopicoPastaDto(val id: UUID, val nome: String, val ordem: Int, val livre: Boolean, val temConteudo: Boolean, val limiteDeProvas: Int, val totalQuestoes: Int, val materiais: List<MaterialRefDto>)
+/**
+ * Tópico oferecido para receber uma faixa de trechos de um material.
+ * @property id tópico.
+ * @property nome nome do tópico.
+ */
+data class TopicoCandidatoDto(val id: UUID, val nome: String)
+/**
+ * Tópico no histórico (qualquer pasta, de material ou livre).
+ * @property id tópico.
+ * @property nome nome do tópico.
+ * @property assuntoId pasta.
+ * @property livre se não tem material.
+ * @property materiais materiais que o alimentam.
+ * @property totalQuestoes questões do tópico.
+ * @property temResumo se já tem resumo.
+ * @property criadoEm quando foi criado.
+ */
+data class TopicoHistoricoDto(val id: UUID, val nome: String, val assuntoId: UUID, val livre: Boolean, val materiais: List<MaterialRefDto>, val totalQuestoes: Int, val temResumo: Boolean, val criadoEm: java.time.Instant)
+/**
+ * Corpo de `PUT /assuntos/{id}/topicos/ordem`.
+ * @property ids todos os tópicos da pasta, na nova ordem.
+ */
+data class OrdemRequest(@field:NotEmpty(message = "Informe os tópicos na nova ordem.") val ids: List<UUID> = emptyList())
+/**
+ * Corpo de `POST /topicos/{id}/fontes`.
+ * @property materialId material a acrescentar.
+ * @property inicio ordem do primeiro trecho da faixa.
+ * @property fim ordem do último trecho da faixa.
+ */
+data class FonteRequest(val materialId: UUID, @field:Min(1, message = "A faixa começa no trecho 1 ou depois.") val inicio: Int, val fim: Int)
+/**
+ * Fonte de um tópico: faixa de trechos de um material.
+ * @property materialId material.
+ * @property nome título do estudo, ou o nome do arquivo.
+ * @property inicio primeiro trecho.
+ * @property fim último trecho.
+ */
+data class FonteDoTopicoDto(val materialId: UUID, val nome: String, val inicio: Int, val fim: Int)
 
 /** Verdadeiro se o tópico (alias `t`) já tem resumo ou questões geradas. */
 private const val TEM_CONTEUDO = "(EXISTS (SELECT 1 FROM resumo r WHERE r.topico_id = t.id) OR EXISTS (SELECT 1 FROM questao q WHERE q.topico_id = t.id))"
@@ -183,7 +242,10 @@ class TopicoService(private val jdbc: JdbcTemplate, private val dados: Dados, pr
         (removidos + movidos).firstOrNull()?.let {
             throw ErroNegocio(HttpStatus.CONFLICT, "O tópico \"${linhas.getValue(it).nome}\" já tem resumo ou questões: os limites dele não podem mudar nem ele pode ser unido ou removido. Renomear é permitido.", "topico_com_conteudo")
         }
-        val assunto = atuais.values.toSet().singleOrNull() ?: throw ErroNegocio(HttpStatus.CONFLICT, "Os tópicos do material estão em assuntos diferentes.", "assuntos_diferentes")
+        (atuais.keys - ids.toSet()).firstOrNull { jdbc.queryForObject("SELECT count(*) FROM topico_fonte WHERE topico_id = ? AND material_id <> ?", Int::class.java, it, materialId)!! > 0 }?.let {
+            throw ErroNegocio(HttpStatus.CONFLICT, "O tópico \"${linhas.getValue(it).nome}\" também é alimentado por outro material. Remova a fonte deste material no tópico em vez de uni-lo.", "topico_com_varias_fontes")
+        }
+        val assunto = atuais.values.toSet().singleOrNull() ?: throw ErroNegocio(HttpStatus.CONFLICT, "Os tópicos do material estão em pastas diferentes. Junte-os na mesma pasta para revisar a divisão.", "assuntos_diferentes")
         travarAssunto(assunto)
 
         // Ordem final no assunto: os demais tópicos ficam onde estavam; os do material ocupam, juntos, o lugar do primeiro deles.
@@ -213,6 +275,157 @@ class TopicoService(private val jdbc: JdbcTemplate, private val dados: Dados, pr
             }
         }
         sequencia.forEachIndexed { i, id -> jdbc.update("UPDATE topico SET ordem = ? WHERE id = ? AND ordem <> ?", i + 1, id, i + 1) }
+    }
+
+
+    /**
+     * Lista os tópicos de uma pasta, na ordem.
+     * @param assuntoId pasta.
+     * @return os tópicos com materiais, se estão congelados e quantas provas os usam como limite.
+     * @throws ErroNegocio 404 se a pasta não existir.
+     */
+    fun daPasta(assuntoId: UUID): List<TopicoPastaDto> = tx.execute {
+        if (jdbc.query("SELECT 1 FROM assunto WHERE id = ?", { rs, _ -> 1 }, assuntoId).isEmpty()) throw ErroNegocio(HttpStatus.NOT_FOUND, "Pasta não encontrada.", "assunto_nao_encontrado")
+        val materiais = jdbc.query(
+            "SELECT f.topico_id, m.id, coalesce(m.titulo, m.nome_arquivo) FROM topico_fonte f JOIN topico t ON t.id = f.topico_id JOIN material m ON m.id = f.material_id WHERE t.assunto_id = ? ORDER BY m.criado_em",
+            { rs, _ -> rs.getObject(1, UUID::class.java) to MaterialRefDto(rs.getObject(2, UUID::class.java), rs.getString(3)) }, assuntoId,
+        ).groupBy({ it.first }, { it.second })
+        jdbc.query(
+            "SELECT t.id, t.nome, t.ordem, $TEM_CONTEUDO AS tem_conteudo, (SELECT count(*) FROM prova_assunto pa WHERE pa.topico_limite_id = t.id) AS limite, (SELECT count(*) FROM questao q WHERE q.topico_id = t.id) AS total_questoes FROM topico t WHERE t.assunto_id = ? ORDER BY t.ordem",
+            { rs, _ ->
+                val id = rs.getObject("id", UUID::class.java)
+                TopicoPastaDto(id, rs.getString("nome"), rs.getInt("ordem"), materiais[id].isNullOrEmpty(), rs.getBoolean("tem_conteudo"), rs.getInt("limite"), rs.getInt("total_questoes"), materiais[id].orEmpty())
+            }, assuntoId,
+        )
+    }!!
+
+
+    /**
+     * Tópicos que podem receber uma faixa do material: os da mesma pasta dos tópicos dele, sem resumo nem questões e que ainda não usam o material.
+     * Se o material tiver tópicos em mais de uma pasta, não há candidatos (a divisão do material exige uma pasta só).
+     * @param materialId material.
+     * @return os candidatos, na ordem da pasta.
+     * @throws ErroNegocio 404 se o material não existir.
+     */
+    fun candidatosAFonte(materialId: UUID): List<TopicoCandidatoDto> = tx.execute {
+        if (dados.material(materialId) == null) throw ErroNegocio(HttpStatus.NOT_FOUND, "Material não encontrado.", "nao_encontrado")
+        val pastas = jdbc.query("SELECT DISTINCT t.assunto_id FROM topico t JOIN topico_fonte f ON f.topico_id = t.id WHERE f.material_id = ?", { rs, _ -> rs.getObject(1, UUID::class.java) }, materialId)
+        if (pastas.size != 1) return@execute emptyList()
+        jdbc.query(
+            "SELECT t.id, t.nome FROM topico t WHERE t.assunto_id = ? AND NOT $TEM_CONTEUDO AND NOT EXISTS (SELECT 1 FROM topico_fonte f WHERE f.topico_id = t.id AND f.material_id = ?) ORDER BY t.ordem",
+            { rs, _ -> TopicoCandidatoDto(rs.getObject(1, UUID::class.java), rs.getString(2)) }, pastas[0], materialId,
+        )
+    }!!
+
+    /**
+     * Histórico de tópicos: todos, de qualquer pasta, do mais novo ao mais antigo.
+     * @param limite máximo de tópicos.
+     * @return os tópicos com materiais, questões e resumo.
+     */
+    fun todos(limite: Int): List<TopicoHistoricoDto> = tx.execute {
+        val materiais = jdbc.query(
+            "SELECT f.topico_id, m.id, coalesce(m.titulo, m.nome_arquivo) FROM topico_fonte f JOIN material m ON m.id = f.material_id ORDER BY m.criado_em",
+            { rs, _ -> rs.getObject(1, UUID::class.java) to MaterialRefDto(rs.getObject(2, UUID::class.java), rs.getString(3)) },
+        ).groupBy({ it.first }, { it.second })
+        jdbc.query(
+            "SELECT t.id, t.nome, t.assunto_id, t.criado_em, (SELECT count(*) FROM questao q WHERE q.topico_id = t.id) AS questoes, EXISTS (SELECT 1 FROM resumo r WHERE r.topico_id = t.id) AS resumo FROM topico t ORDER BY t.criado_em DESC, t.id LIMIT ?",
+            { rs, _ ->
+                val id = rs.getObject("id", UUID::class.java)
+                TopicoHistoricoDto(id, rs.getString("nome"), rs.getObject("assunto_id", UUID::class.java), materiais[id].isNullOrEmpty(), materiais[id].orEmpty(), rs.getInt("questoes"), rs.getBoolean("resumo"), rs.getTimestamp("criado_em").toInstant())
+            }, limite,
+        )
+    }!!
+
+    /**
+     * Define a ordem dos tópicos de uma pasta numa transação (a unicidade da ordem só é conferida no fim). Provas já geradas não mudam: guardam as questões sorteadas.
+     * @param assuntoId pasta.
+     * @param ids todos os tópicos da pasta, na nova ordem.
+     * @return os tópicos na nova ordem.
+     * @throws ErroNegocio 404 se a pasta não existir; 422 se a lista não tiver exatamente os tópicos da pasta.
+     */
+    fun reordenar(assuntoId: UUID, ids: List<UUID>): List<TopicoPastaDto> {
+        tx.executeWithoutResult {
+            travarAssunto(assuntoId)
+            val atuais = jdbc.query("SELECT id FROM topico WHERE assunto_id = ?", { rs, _ -> rs.getObject(1, UUID::class.java) }, assuntoId)
+            if (ids.size != ids.toSet().size || ids.toSet() != atuais.toSet()) throw ErroNegocio(HttpStatus.UNPROCESSABLE_ENTITY, "A lista precisa ter todos os tópicos da pasta, cada um uma vez.", "ordem_invalida")
+            ids.forEachIndexed { i, id -> jdbc.update("UPDATE topico SET ordem = ? WHERE id = ? AND ordem <> ?", i + 1, id, i + 1) }
+        }
+        return daPasta(assuntoId)
+    }
+
+    /**
+     * Fontes de um tópico (faixa de trechos de cada material).
+     * @param topicoId tópico.
+     * @return as fontes, pelo nome do estudo.
+     * @throws ErroNegocio 404 se o tópico não existir.
+     */
+    fun fontes(topicoId: UUID): List<FonteDoTopicoDto> = tx.execute {
+        existe(topicoId)
+        jdbc.query(
+            "SELECT m.id, coalesce(m.titulo, m.nome_arquivo), f.ordem_trecho_inicial, f.ordem_trecho_final FROM topico_fonte f JOIN material m ON m.id = f.material_id WHERE f.topico_id = ? ORDER BY m.criado_em",
+            { rs, _ -> FonteDoTopicoDto(rs.getObject(1, UUID::class.java), rs.getString(2), rs.getInt(3), rs.getInt(4)) }, topicoId,
+        )
+    }!!
+
+    /**
+     * Confere que o tópico existe.
+     * @param topicoId tópico.
+     * @throws ErroNegocio 404 se não existir.
+     */
+    private fun existe(topicoId: UUID) {
+        if (jdbc.query("SELECT 1 FROM topico WHERE id = ?", { rs, _ -> 1 }, topicoId).isEmpty()) throw ErroNegocio(HttpStatus.NOT_FOUND, "Tópico não encontrado.", "nao_encontrado")
+    }
+
+    /**
+     * Trava o tópico e recusa se já tem resumo ou questões (o conteúdo gerado cita os trechos das fontes de então).
+     * @param topicoId tópico.
+     * @throws ErroNegocio 404 se não existir; 409 se estiver congelado.
+     */
+    private fun travarSemConteudo(topicoId: UUID) {
+        jdbc.query("SELECT id FROM topico WHERE id = ? FOR UPDATE", { rs, _ -> 1 }, topicoId).firstOrNull() ?: throw ErroNegocio(HttpStatus.NOT_FOUND, "Tópico não encontrado.", "nao_encontrado")
+        if (jdbc.queryForObject("SELECT $TEM_CONTEUDO FROM topico t WHERE t.id = ?", Boolean::class.java, topicoId)!!)
+            throw ErroNegocio(HttpStatus.CONFLICT, "Este tópico já tem resumo ou questões: as fontes dele não mudam. Crie outro tópico para usar outro material.", "topico_com_conteudo")
+    }
+
+    /**
+     * Acrescenta ao tópico uma faixa de trechos de um material (do mesmo material do tópico ou de outro).
+     * @param topicoId tópico, sem resumo nem questões.
+     * @param r material e faixa.
+     * @return as fontes do tópico depois da inclusão.
+     * @throws ErroNegocio 404 se o tópico ou o material não existirem; 409 se o tópico estiver congelado, o material não estiver pronto, o tópico já usar o material ou a faixa se sobrepor a outro tópico; 422 se a faixa sair dos trechos.
+     */
+    fun adicionarFonte(topicoId: UUID, r: FonteRequest): List<FonteDoTopicoDto> {
+        try {
+            tx.executeWithoutResult {
+                travarSemConteudo(topicoId)
+                val m = dados.material(r.materialId) ?: throw ErroNegocio(HttpStatus.NOT_FOUND, "Material não encontrado.", "nao_encontrado")
+                if (m.status != "pronto") throw ErroNegocio(HttpStatus.CONFLICT, "O material ainda não está pronto.", "material_nao_pronto")
+                val total = dados.totalTrechos(r.materialId)
+                if (r.inicio < 1 || r.fim < r.inicio || r.fim > total) throw ErroNegocio(HttpStatus.UNPROCESSABLE_ENTITY, "A faixa precisa ficar entre os trechos 1 e $total, com o início antes do fim.", "faixa_invalida")
+                if (jdbc.queryForObject("SELECT count(*) FROM topico_fonte WHERE topico_id = ? AND material_id = ?", Int::class.java, topicoId, r.materialId)!! > 0)
+                    throw ErroNegocio(HttpStatus.CONFLICT, "Este tópico já usa uma faixa desse material. Remova-a antes de escolher outra.", "fonte_duplicada")
+                jdbc.query(
+                    "SELECT t.nome FROM topico_fonte f JOIN topico t ON t.id = f.topico_id WHERE f.material_id = ? AND int4range(f.ordem_trecho_inicial, f.ordem_trecho_final, '[]') && int4range(?, ?, '[]') LIMIT 1",
+                    { rs, _ -> rs.getString(1) }, r.materialId, r.inicio, r.fim,
+                ).firstOrNull()?.let { throw ErroNegocio(HttpStatus.CONFLICT, "Parte dessa faixa já pertence ao tópico \"$it\". Escolha trechos que nenhum tópico use.", "faixa_sobreposta") }
+                inserirFonte(topicoId, r.materialId, r.inicio, r.fim)
+            }
+        } catch (e: DataIntegrityViolationException) {  // corrida: outra requisição ocupou a faixa entre a conferência e o commit
+            throw ErroNegocio(HttpStatus.CONFLICT, "Parte dessa faixa acabou de ser usada por outro tópico.", "faixa_sobreposta")
+        }
+        return fontes(topicoId)
+    }
+
+    /**
+     * Remove a fonte de um material do tópico; sem nenhuma fonte, o tópico vira livre.
+     * @param topicoId tópico, sem resumo nem questões.
+     * @param materialId material a retirar.
+     * @return nada.
+     * @throws ErroNegocio 404 se o tópico não existir ou não usar o material; 409 se estiver congelado.
+     */
+    fun removerFonte(topicoId: UUID, materialId: UUID) = tx.executeWithoutResult {
+        travarSemConteudo(topicoId)
+        if (jdbc.update("DELETE FROM topico_fonte WHERE topico_id = ? AND material_id = ?", topicoId, materialId) == 0) throw ErroNegocio(HttpStatus.NOT_FOUND, "Este tópico não usa esse material.", "nao_encontrado")
     }
 
     companion object {

@@ -62,13 +62,19 @@ export default function Inicio({ nome, aoSair, aoAbrirPerfil, aoNovoEstudo, aoAb
    */
   const nomeDaPasta = (id?: string | null) => assuntos?.find((a) => a.id === id)?.nome
   /**
-   * Pasta de um estudo.
+   * Pasta de um estudo (a do primeiro tópico, no caso de um material com tópicos em várias pastas).
    * @param e material ou tópico livre da lista.
    * @returns id da pasta, ou nulo.
    */
   const pastaDe = (e: NonNullable<typeof estudos>[number]) => (e.tipo === 'material' ? e.m.assuntoId : e.t.assuntoId)
   // sem pasta conhecida (material ainda processando) aparece em qualquer filtro
-  const visiveis = estudos === null ? null : estudos.filter((e) => filtro === TODAS || !pastaDe(e) || pastaDe(e) === filtro)
+  /**
+   * Diz se o estudo aparece na pasta filtrada (um material aparece em toda pasta onde tem tópicos).
+   * @param e material ou tópico livre da lista.
+   * @returns verdadeiro se o estudo pertence ao filtro.
+   */
+  const naPasta = (e: NonNullable<typeof estudos>[number]) => (e.tipo === 'material' ? (e.m.assuntoIds?.length ? e.m.assuntoIds.includes(filtro) : pastaDe(e) === filtro) : pastaDe(e) === filtro)
+  const visiveis = estudos === null ? null : estudos.filter((e) => filtro === TODAS || !pastaDe(e) || naPasta(e))
   /**
    * Nome da pasta a mostrar no cartão, só quando o filtro é "Todos" e a pasta não é a padrão.
    * @param e material ou tópico livre da lista.
@@ -100,6 +106,7 @@ export default function Inicio({ nome, aoSair, aoAbrirPerfil, aoNovoEstudo, aoAb
         {assuntos === null ? <Carregando blocos={1} /> : <Pastas pastas={assuntos} atual={filtro} aoEscolher={setFiltro} aoMudar={() => { carregarPastas(); buscarMateriais(); buscarLivres() }} />}
         <div className="titulo-linha">
           <h2>Seus estudos</h2>
+          <button type="button" className="link" onClick={() => irPara('/historico')}>Ver histórico completo</button>
         </div>
         {falhaMateriais ? (
           <div role="alert"><p className="erro">Não foi possível carregar seus estudos.</p><button type="button" onClick={tentarMateriais}>Tentar de novo</button></div>
@@ -128,7 +135,7 @@ export default function Inicio({ nome, aoSair, aoAbrirPerfil, aoNovoEstudo, aoAb
                     {e.m.titulo ? <span>Arquivo {e.m.nomeArquivo}</span> : null}
                     {pasta(e) ? <span>Pasta {pasta(e)}</span> : null}
                   </div>
-                  {assuntos && assuntos.length > 1 && <SeletorPasta id={`pasta-m-${e.m.id}`} pastas={assuntos} atual={e.m.assuntoId} nome={nomeDoEstudo(e.m)} caminho={`/materiais/${e.m.id}/assunto`} desabilitado={e.m.status !== 'pronto'} aoMudar={() => { buscarMateriais(); buscarLivres() }} />}
+                  {assuntos && assuntos.length > 1 && <SeletorPasta id={`pasta-m-${e.m.id}`} pastas={assuntos} atual={e.m.assuntoId} nome={nomeDoEstudo(e.m)} caminho={`/materiais/${e.m.id}/assunto`} desabilitado={e.m.status !== 'pronto'} aoMudar={() => { carregarPastas(); buscarMateriais(); buscarLivres() }} />}
                   {e.m.status === 'falhou' && (
                     <>
                       <p className="motivo">{motivoDe(e.m.motivoFalha)}</p>
@@ -149,7 +156,7 @@ export default function Inicio({ nome, aoSair, aoAbrirPerfil, aoNovoEstudo, aoAb
                     <span>{e.t.totalQuestoes} {e.t.totalQuestoes === 1 ? 'questão' : 'questões'}</span>
                     {pasta(e) ? <span>Pasta {pasta(e)}</span> : null}
                   </div>
-                  {assuntos && assuntos.length > 1 && <SeletorPasta id={`pasta-t-${e.t.id}`} pastas={assuntos} atual={e.t.assuntoId} nome={e.t.nome} caminho={`/topicos/${e.t.id}/assunto`} aoMudar={() => { buscarMateriais(); buscarLivres() }} />}
+                  {assuntos && assuntos.length > 1 && <SeletorPasta id={`pasta-t-${e.t.id}`} pastas={assuntos} atual={e.t.assuntoId} nome={e.t.nome} caminho={`/topicos/${e.t.id}/assunto`} aoMudar={() => { carregarPastas(); buscarMateriais(); buscarLivres() }} />}
                 </div>
               </li>
             ))}

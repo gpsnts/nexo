@@ -313,19 +313,26 @@ class PerfilController(private val conta: ContaService, private val cookie: Cook
  * @property id identificador.
  * @property nome nome do assunto.
  * @property padrao se é o "Geral".
+ * @property topicos quantos tópicos a pasta tem.
+ * @property materiais quantos materiais diferentes alimentam tópicos da pasta.
  */
-data class AssuntoDto(val id: UUID, val nome: String, val padrao: Boolean)
+data class AssuntoDto(val id: UUID, val nome: String, val padrao: Boolean, val topicos: Int = 0, val materiais: Int = 0)
 
 /** Lista dos assuntos do usuário (`/assuntos`). */
 @RestController
-class AssuntoController(private val assuntos: AssuntoRepository) {
+class AssuntoController(private val jdbc: org.springframework.jdbc.core.JdbcTemplate) {
     // Sem filtro de usuário no código: quem isola é a RLS, com o contexto posto pela transação.
     /**
-     * Lista os assuntos do usuário; o isolamento vem da RLS.
+     * Lista os assuntos do usuário, com a contagem de tópicos e de materiais de cada um; o isolamento vem da RLS.
      * @param jwt token do usuário autenticado.
-     * @return os assuntos do usuário.
+     * @return os assuntos do usuário, o padrão primeiro.
      */
     @GetMapping("/assuntos")
     @Transactional(readOnly = true)
-    fun listar(@AuthenticationPrincipal jwt: Jwt) = assuntos.findAll().map { AssuntoDto(it.id, it.nome, it.assuntoPadrao) }
+    fun listar(@AuthenticationPrincipal jwt: Jwt) = jdbc.query(
+        """SELECT a.id, a.nome, a.assunto_padrao, (SELECT count(*) FROM topico t WHERE t.assunto_id = a.id) AS topicos,
+                  (SELECT count(DISTINCT f.material_id) FROM topico t JOIN topico_fonte f ON f.topico_id = t.id WHERE t.assunto_id = a.id) AS materiais
+           FROM assunto a ORDER BY a.assunto_padrao DESC, a.criado_em""",
+        { rs, _ -> AssuntoDto(rs.getObject("id", UUID::class.java), rs.getString("nome"), rs.getBoolean("assunto_padrao"), rs.getInt("topicos"), rs.getInt("materiais")) },
+    )
 }

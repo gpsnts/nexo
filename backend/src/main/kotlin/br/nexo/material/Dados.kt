@@ -19,12 +19,13 @@ import java.util.UUID
  * @property criadoEm criação.
  * @property atualizadoEm última atualização.
  * @property titulo nome dado ao estudo.
- * @property assuntoId pasta dos tópicos.
+ * @property assuntoId pasta do primeiro tópico.
+ * @property assuntoIds todas as pastas onde o material tem tópicos (mais de uma depois que tópicos são movidos).
  */
 data class MaterialLinha(
     val id: UUID, val nomeArquivo: String, val tipoArquivo: String, val tamanhoBytes: Long, val paginas: Int?, val hash: String,
     val caminho: String, val status: String, val motivoFalha: String?, val criadoEm: Instant, val atualizadoEm: Instant,
-    val titulo: String? = null, val assuntoId: UUID? = null,
+    val titulo: String? = null, val assuntoId: UUID? = null, val assuntoIds: List<UUID> = emptyList(),
 )
 
 /**
@@ -55,10 +56,12 @@ class Dados(val jdbc: JdbcTemplate) {
         rs.getObject("quantidade_paginas") as Int?, rs.getString("hash_arquivo"), rs.getString("caminho_arquivo"), rs.getString("status_processamento"),
         rs.getString("motivo_falha"), rs.getTimestamp("criado_em").toInstant(), rs.getTimestamp("atualizado_em").toInstant(),
         rs.getString("titulo"), rs.getObject("assunto_id", UUID::class.java),
+        (rs.getArray("assunto_ids").array as Array<*>).map { it as UUID },
     )
 
-    /** A pasta do estudo é a dos seus tópicos (movem juntos); nula enquanto o material ainda não tem tópicos. */
-    private val sel = "SELECT m.*, (SELECT t.assunto_id FROM topico_fonte f JOIN topico t ON t.id = f.topico_id WHERE f.material_id = m.id ORDER BY t.ordem LIMIT 1) AS assunto_id FROM material m"
+    /** A pasta do estudo é a do primeiro tópico dele (nula enquanto não há tópicos); `assunto_ids` traz todas as pastas onde ele tem tópicos. */
+    private val sel = "SELECT m.*, (SELECT t.assunto_id FROM topico_fonte f JOIN topico t ON t.id = f.topico_id WHERE f.material_id = m.id ORDER BY t.ordem LIMIT 1) AS assunto_id, " +
+        "ARRAY(SELECT DISTINCT t.assunto_id FROM topico_fonte f JOIN topico t ON t.id = f.topico_id WHERE f.material_id = m.id) AS assunto_ids FROM material m"
 
     /**
      * Busca um material.

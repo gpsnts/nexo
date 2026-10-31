@@ -51,7 +51,7 @@ test('gera questões com barra de andamento, mostra o resultado e lista as quest
   })
   render(<App />)
   expect(await screen.findByRole('heading', { name: 'Células' })).toBeTruthy()
-  expect(screen.getByText(/limites deste tópico ficam fixos/)).toBeTruthy()
+  expect(screen.getByText(/limites e as fontes deste tópico ficam fixos/)).toBeTruthy()
   fireEvent.change(screen.getByLabelText('Quantas questões gerar'), { target: { value: '3' } })
   clicar('Gerar questões')
   expect(await screen.findByRole('progressbar', { name: 'Andamento da geração' })).toBeTruthy()
@@ -957,16 +957,17 @@ test('mudar de pasta direto no cartão da lista inicial, para material e para t�
   fireEvent.change(screen.getByRole('combobox', { name: 'Pasta de Óptica' }), { target: { value: 'h' } })
   await waitFor(() => expect(chamadas.find((c) => c.chave === 'PUT /topicos/t1/assunto')!.corpo).toEqual({ assuntoId: 'h' }))
   expect(chamadas.filter((c) => c.chave === 'GET /materiais').length).toBeGreaterThan(1)  // a lista é recarregada depois de mover
+  expect(chamadas.filter((c) => c.chave === 'GET /assuntos').length).toBeGreaterThan(1)  // e as contagens das pastas também
 })
 
-test('no tópico de material o seletor de pasta move o material inteiro', async () => {
+test('no tópico de material o seletor de pasta move só o tópico', async () => {
   const chamadas = servidor({
     ...base, 'GET /assuntos': [200, pastas],
     [`GET /topicos/${T}`]: [200, detalhe()], [`GET /topicos/${T}/questoes`]: [200, []],
-    'PUT /materiais/m/assunto': [200, { id: 'f', nome: 'Física', padrao: false }],
+    [`PUT /topicos/${T}/assunto`]: [200, { id: 'f', nome: 'Física', padrao: false }],
   })
   render(<App />)
   fireEvent.change(await screen.findByRole('combobox', { name: 'Pasta de Células' }), { target: { value: 'f' } })
-  await waitFor(() => expect(chamadas.find((c) => c.chave === 'PUT /materiais/m/assunto')!.corpo).toEqual({ assuntoId: 'f' }))
-  expect(screen.getByText(/O estudo inteiro/)).toBeTruthy()
+  await waitFor(() => expect(chamadas.find((c) => c.chave === `PUT /topicos/${T}/assunto`)!.corpo).toEqual({ assuntoId: 'f' }))
+  expect(chamadas.some((c) => c.chave === 'PUT /materiais/m/assunto')).toBe(false)
 })

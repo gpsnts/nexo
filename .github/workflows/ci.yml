@@ -28,7 +28,7 @@ jobs:
         run: |
           n=$(psql -v ON_ERROR_STOP=1 -f db/validacao/verificar_esquema.sql 2>&1 | grep -c PASS)
           echo "verificações: $n"
-          test "$n" -eq 89
+          test "$n" -eq 93
 
   backend:
     runs-on: ubuntu-latest

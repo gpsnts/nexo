@@ -64,7 +64,7 @@ class OrganizacaoTest : BaseIntegracao() {
     }
 
     @Test
-    fun `topico livre muda de pasta e topico de material recusa`() {
+    fun `topico livre e topico de material mudam de pasta sozinhos`() {
         val c = conta(); val g = geral(c); val p = pasta(c, "Física")
         val t = livre(c)
         assertEquals(g, chamar("GET", "/topicos/livres", token = c.token).corpo[0]["assuntoId"].asString())
@@ -72,7 +72,9 @@ class OrganizacaoTest : BaseIntegracao() {
         assertEquals(p, chamar("GET", "/topicos/livres", token = c.token).corpo[0]["assuntoId"].asString())
         val m = material(c)
         val doMaterial = dono.queryForObject("SELECT t.id::text FROM topico t JOIN topico_fonte f ON f.topico_id=t.id WHERE f.material_id=?::uuid LIMIT 1", String::class.java, m)!!
-        assertEquals("topico_de_material", chamar("PUT", "/topicos/$doMaterial/assunto", """{"assuntoId":"$p"}""", c.token).corpo["codigo"].asString())
+        assertEquals(200, chamar("PUT", "/topicos/$doMaterial/assunto", """{"assuntoId":"$p"}""", c.token).status)
+        assertEquals(setOf(g, p), assuntosDosTopicos(m).toSet(), "o material fica com tópicos em duas pastas")
+        assertEquals(setOf(g, p), materialDto(c, m)["assuntoIds"].toList().map { it.asString() }.toSet())
     }
 
     @Test

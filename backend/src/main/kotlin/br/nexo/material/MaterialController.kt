@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
+import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
@@ -51,6 +52,73 @@ data class OrientacaoRequest(val orientacao: String? = null)
 /** Rotas de material, andamento e tópicos O usuário sai sempre do JWT; a RLS isola as contas. */
 @RestController
 class MaterialController(private val materiais: MaterialService, private val topicos: TopicoService, private val envios: EnviosSimultaneos, private val reorganizacao: Reorganizacao) {
+    /**
+     * Exclui um material (e o arquivo); tópicos, questões, provas e respostas ficam.
+     * @param id material.
+     * @return 204.
+     */
+    @DeleteMapping("/materiais/{id}")
+    fun excluir(@PathVariable id: UUID): ResponseEntity<Void> { materiais.excluir(id); return ResponseEntity.noContent().build() }
+
+    /**
+     * Tópicos que podem receber uma faixa de trechos deste material.
+     * @param id material.
+     * @return os candidatos.
+     */
+    @GetMapping("/materiais/{id}/topicos-candidatos")
+    fun candidatos(@PathVariable id: UUID) = topicos.candidatosAFonte(id)
+
+    /**
+     * Histórico: todos os tópicos do usuário, do mais novo ao mais antigo.
+     * @param limite máximo de itens (1 a 500, padrão 200).
+     * @return os tópicos.
+     */
+    @GetMapping("/topicos")
+    fun todosOsTopicos(@RequestParam(defaultValue = "200") limite: Int) = topicos.todos(limite.coerceIn(1, 500))
+
+    /**
+     * Lista os tópicos de uma pasta.
+     * @param id pasta.
+     * @return os tópicos na ordem.
+     */
+    @GetMapping("/assuntos/{id}/topicos")
+    fun topicosDaPasta(@PathVariable id: UUID) = topicos.daPasta(id)
+
+    /**
+     * Define a ordem dos tópicos de uma pasta.
+     * @param id pasta.
+     * @param r todos os tópicos da pasta na nova ordem.
+     * @return os tópicos na nova ordem.
+     */
+    @PutMapping("/assuntos/{id}/topicos/ordem")
+    fun reordenar(@PathVariable id: UUID, @Valid @RequestBody r: OrdemRequest) = topicos.reordenar(id, r.ids)
+
+    /**
+     * Fontes de um tópico.
+     * @param id tópico.
+     * @return faixa de trechos de cada material.
+     */
+    @GetMapping("/topicos/{id}/fontes")
+    fun fontes(@PathVariable id: UUID) = topicos.fontes(id)
+
+    /**
+     * Acrescenta uma fonte ao tópico.
+     * @param id tópico.
+     * @param r material e faixa de trechos.
+     * @return 201 com as fontes do tópico.
+     */
+    @PostMapping("/topicos/{id}/fontes")
+    fun adicionarFonte(@PathVariable id: UUID, @Valid @RequestBody r: FonteRequest) = ResponseEntity.status(HttpStatus.CREATED).body(topicos.adicionarFonte(id, r))
+
+    /**
+     * Retira a fonte de um material do tópico.
+     * @param id tópico.
+     * @param materialId material.
+     * @return 204.
+     */
+    @DeleteMapping("/topicos/{id}/fontes/{materialId}")
+    fun removerFonte(@PathVariable id: UUID, @PathVariable materialId: UUID): ResponseEntity<Void> { topicos.removerFonte(id, materialId); return ResponseEntity.noContent().build() }
+
     /**
      * Envia um material (PDF, DOCX ou TXT).
      * @param arquivo arquivo enviado.

@@ -2,19 +2,23 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { api, definirToken, quandoPerderSessao, renovarSessao, type Sessao } from './api'
 import Entrar, { type Modo } from './Entrar'
 import Desempenho from './Desempenho'
+import Historico from './Historico'
 import Inicio from './Inicio'
 import LinkDeEmail from './LinkDeEmail'
 import Material from './Material'
 import NaoEncontrada from './NaoEncontrada'
 import NovoEstudo from './NovoEstudo'
 import Perfil from './Perfil'
+import Prova from './Prova'
+import Provas from './Provas'
 import Revisao from './Revisao'
 import Topico from './Topico'
-import { EVENTO_ROTA, ehEntrada, ehInterna, ehLink, idDoMaterial, idDoTopico, proximoDaUrl, rotaDaUrl, urlDe, urlMaterial, urlTopico, type NomeRota } from './rotas'
+import TopicosDaPasta from './TopicosDaPasta'
+import { EVENTO_ROTA, ehEntrada, ehInterna, ehLink, idDaPasta, idDaProva, idDoMaterial, idDoTopico, proximoDaUrl, rotaDaUrl, urlDe, urlMaterial, urlTopico, type NomeRota } from './rotas'
 import { chaveSessao, marcarSessao, talvezTenhaSessao } from './sessaoLocal'
 
 /** Rota que se navega por nome (as com parâmetro usam funções próprias). */
-type Destino = Exclude<NomeRota, 'desconhecida' | 'material' | 'topico'>
+type Destino = Exclude<NomeRota, 'desconhecida' | 'material' | 'topico' | 'pasta' | 'prova'>
 /**
  * Modo da tela de acesso de uma rota.
  * @param r rota.
@@ -45,7 +49,9 @@ const assinarRota = (aviso: () => void) => {
  * @returns a tela da rota corrente.
  */
 export default function App() {
-  const rota = useSyncExternalStore(assinarRota, () => rotaDaUrl(), () => 'inicio' as NomeRota)
+  // Observa o caminho inteiro (não só o nome da rota): ir de uma prova para outra, por exemplo, tem de trocar a tela.
+  const caminho = useSyncExternalStore(assinarRota, () => window.location.pathname, () => '/')
+  const rota = rotaDaUrl(caminho)
   // O token do link do e-mail é lido uma vez e sai da URL (histórico, favoritos e capturas de tela não o guardam).
   const [tokenDoLink] = useState(() => (ehLink(rotaDaUrl()) ? new URLSearchParams(window.location.search).get('token') : null))
   const [carregando, setCarregando] = useState(talvezTenhaSessao)
@@ -126,6 +132,10 @@ export default function App() {
   if (rota === 'perfil')
     return <Perfil nome={sessao.nome} aoIrInicio={comum.aoIrInicio} aoSair={encerrar} aoExcluir={sair} aoAtualizarNome={(nome) => setSessao({ nome })} />
   if (rota === 'revisar') return <Revisao {...comum} />
+  if (rota === 'provas') return <Provas {...comum} />
+  if (rota === 'historico') return <Historico {...comum} aoAbrirMaterial={abrirMaterial} aoAbrirTopico={abrirTopico} />
+  if (rota === 'prova') return <Prova key={idDaProva()} id={idDaProva()!} {...comum} />
+  if (rota === 'pasta') return <TopicosDaPasta key={idDaPasta()} id={idDaPasta()!} {...comum} aoAbrirTopico={abrirTopico} />
   if (rota === 'desempenho') return <Desempenho {...comum} aoAbrirTopico={abrirTopico} />
   if (rota === 'novo') return <NovoEstudo {...comum} aoAbrirMaterial={abrirMaterial} aoAbrirTopico={abrirTopico} />
   if (rota === 'material')

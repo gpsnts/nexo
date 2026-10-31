@@ -51,6 +51,10 @@ nexo:
     mensagens-por-topico: 200 # ao chegar, o usuário limpa a conversa
     resposta-max-caracteres: 6000      # a resposta do tutor é cortada ao gravar
     fala-enviada-max-caracteres: 3500  # cada fala do histórico vai cortada (o serviço Python recusa mais de 4000)
+  prova:
+    quantidade-maxima: 50
+    assuntos-maximos: 10
+    limite-minutos-maximo: 480  # igual ao CHECK da coluna prova.limite_minutos
   painel:
     semanas: 8
     semanas-maximo: 26

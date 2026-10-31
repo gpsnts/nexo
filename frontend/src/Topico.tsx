@@ -5,6 +5,7 @@ import Cabecalho from './Cabecalho'
 import { AVISO_IA, type Assunto, type Dificuldade, NIVEIS, rotuloDoNivel, avisarUso, capaDe, nomeDoEstudo, config, percentualDe, QUESTOES_POR_PEDIDO, rotuloApoio, type Geracao, type Questao, type Resumo, type TopicoDetalhe } from './estudo'
 import Chat from './Chat'
 import Orientacao from './Orientacao'
+import FontesDoTopico from './FontesDoTopico'
 import SeletorPasta from './SeletorPasta'
 import { IconeFaisca, IconeVoltar } from './Icones'
 import Responder, { Resultado } from './Responder'
@@ -228,9 +229,9 @@ export default function Topico({ id, aoIrInicio, aoIrPerfil, aoSair, aoAbrirMate
             {topico.livre
               ? <button type="button" className="link voltar" onClick={aoIrInicio}><IconeVoltar tam={16} />Voltar ao início</button>
               : <button type="button" className="link voltar" onClick={() => aoAbrirMaterial(topico.fontes[0].materialId)}><IconeVoltar tam={16} />Voltar ao material "{nomeDoEstudo(topico.fontes[0])}"</button>}
-            {(topico.livre || topico.fontes.length === 1) && <PastaDoTopico topicoId={id} materialId={topico.livre ? null : topico.fontes[0].materialId} atual={topico.assuntoId} nome={topico.nome} />}
+            <PastaDoTopico topicoId={id} atual={topico.assuntoId} nome={topico.nome} />
             {!topico.livre && !topico.resumo && topico.totalQuestoes === 0 && (
-              <p className="aviso-ia" role="note">Ao gerar o primeiro conteúdo, os limites deste tópico ficam fixos: só o nome poderá mudar.</p>
+              <p className="aviso-ia" role="note">Ao gerar o primeiro conteúdo, os limites e as fontes deste tópico ficam fixos: só o nome poderá mudar.</p>
             )}
 
             <div className="topico-pagina">
@@ -247,6 +248,8 @@ export default function Topico({ id, aoIrInicio, aoIrPerfil, aoSair, aoAbrirMate
                 </div>
               </section>
             )}
+
+            {(topico.fontes.length > 0 || (topico.resumo === null && topico.totalQuestoes === 0)) && <FontesDoTopico topicoId={id} fontes={topico.fontes} congelado={topico.resumo !== null || topico.totalQuestoes > 0} aoMudar={() => carregar()} />}
 
             <Orientacao topicoId={id} livre={topico.livre} valor={orientacao} salvo={topico.orientacao ?? ''} aoMudar={setOrientacao} aoSalvar={(v) => { setOrientacao(v); setTopico({ ...topico, orientacao: v || null }) }} />
 
@@ -347,11 +350,11 @@ function ResultadoQuestoes({ g, pedidas, titulo }: { g: Geracao; pedidas: number
 }
 
 /**
- * Pasta do tópico: o livre muda sozinho; o de um material muda junto com o material (o estudo inteiro vai para a nova pasta).
- * @param props topicoId: tópico; materialId: material único de origem, ou nulo se é tópico livre; atual: pasta atual; nome: nome do tópico.
+ * Pasta do tópico: qualquer tópico, livre ou de material, muda de pasta sozinho (um tópico que é o limite de uma prova fica onde está).
+ * @param props topicoId: tópico; atual: pasta atual; nome: nome do tópico.
  * @returns o seletor de pasta, ou uma dica para criar pastas quando só existe a "Geral".
  */
-function PastaDoTopico({ topicoId, materialId, atual, nome }: { topicoId: string; materialId: string | null; atual: string; nome: string }) {
+function PastaDoTopico({ topicoId, atual, nome }: { topicoId: string; atual: string; nome: string }) {
   const [pastas, setPastas] = useState<Assunto[]>([])
   const [valor, setValor] = useState(atual)
   useEffect(() => { api<Assunto[]>('/assuntos').then(setPastas).catch(() => {}) }, [])
@@ -359,8 +362,7 @@ function PastaDoTopico({ topicoId, materialId, atual, nome }: { topicoId: string
   if (pastas.length < 2) return <p className="sub dica">Para organizar seus estudos, crie pastas na tela inicial.</p>
   return (
     <>
-      <SeletorPasta id="pasta-topico" pastas={pastas} atual={valor} nome={nome} caminho={materialId ? `/materiais/${materialId}/assunto` : `/topicos/${topicoId}/assunto`} aoMudar={setValor} />
-      {materialId && <p className="sub dica">O estudo inteiro (todos os tópicos do material) muda de pasta.</p>}
+      <SeletorPasta id="pasta-topico" pastas={pastas} atual={valor} nome={nome} caminho={`/topicos/${topicoId}/assunto`} aoMudar={setValor} />
     </>
   )
 }
