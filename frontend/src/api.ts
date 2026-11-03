@@ -84,6 +84,24 @@ export async function api<T>(caminho: string, opcoes: { metodo?: string; corpo?:
   return dados as T
 }
 
+/**
+ * Baixa um arquivo da API (exportação), com o mesmo tratamento de token vencido e de erro das demais chamadas.
+ * @param caminho caminho da API, sem o prefixo `/api`.
+ * @returns o conteúdo do arquivo.
+ * @throws ErroApi se a resposta não for 2xx (inclusive 404 quando não há dados).
+ */
+export async function baixar(caminho: string): Promise<Blob> {
+  let r = await enviar(caminho, 'GET', undefined)
+  if (r.status === 401 && token) {
+    try { await renovarSessao(); r = await enviar(caminho, 'GET', undefined) } catch { token = null; aoPerderSessao() }
+  }
+  if (!r.ok) {
+    const dados = await r.json().catch(() => null)
+    throw new ErroApi(r.status, dados?.mensagem ?? 'Não foi possível exportar. Tente novamente.', dados?.codigo)
+  }
+  return r.blob()
+}
+
 let aoPerderSessao: () => void = () => {}
 /**
  * Registra o que fazer quando a sessão não puder ser renovada.

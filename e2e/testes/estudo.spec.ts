@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { criarContaEEntrar, sql } from '../ajudas'
 
 // Provedores falsos: não sabemos qual alternativa é a certa, então o teste escolhe sempre a A e confere que o gabarito aparece depois.
-test('gerar, responder (gabarito só depois), revisar no dia agendado e ver o painel @celular', async ({ page }) => {
+test('gerar, responder (gabarito só depois), revisar no dia agendado e ver o painel @celular @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await page.goto('/novo-estudo')
   await page.getByLabel('Tópico', { exact: true }).fill('Termologia')
@@ -57,7 +57,7 @@ test('gerar, responder (gabarito só depois), revisar no dia agendado e ver o pa
   await expect(page.getByLabel('Quantas questões gerar')).toBeFocused()
 })
 
-test('dica opcional no questionário e chat com histórico salvo no tópico', async ({ page }) => {
+test('dica opcional no questionário e chat com histórico salvo no tópico @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await page.goto('/novo-estudo')
   await page.getByLabel('Tópico', { exact: true }).fill('Optica')

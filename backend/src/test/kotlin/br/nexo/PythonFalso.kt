@@ -19,6 +19,7 @@ class PythonFalso(val segredo: String) {
     @Volatile var statusReorganizar: Int? = null  // reorganizar responde este status enquanto definido
     @Volatile var atrasoReorganizarMs = 0L
     @Volatile var statusInspecao: Int? = null  // inspecionar responde este status (ex.: 401 de segredo errado) enquanto definido
+    @Volatile var ultimoMaxFiguras: Int? = null  // limite de figuras recebido na última extração
     @Volatile var falharProcessar = false  // processar devolve 422 sem_texto enquanto ligado
     @Volatile var propostaTopicos: String = "[]"
     @Volatile var segredoRecebidoErrado = false
@@ -97,7 +98,8 @@ class PythonFalso(val segredo: String) {
     private fun arquivoDe(corpo: ByteArray, limite: String): ByteArray {
         val texto = String(corpo, Charsets.ISO_8859_1)
         val ini = texto.indexOf("\r\n\r\n") + 4
-        val fim = texto.indexOf("\r\n--$limite--", ini)
+        val fim = texto.indexOf("\r\n--$limite", ini)  // o arquivo é a primeira parte; campos de formulário podem vir depois
+        Regex("name=\"max_figuras\"\r\n\r\n(\\d+)").find(texto)?.let { ultimoMaxFiguras = it.groupValues[1].toInt() }
         return corpo.copyOfRange(ini, fim)
     }
 
@@ -124,19 +126,34 @@ class PythonFalso(val segredo: String) {
         val n = marca(arq, "TRECHOS", 5)
         // SECOES=1,6,11 marca os trechos que abrem com título de nível 1 (os demais não têm título, salvo o trecho 1 "Introdução" sem nível)
         val secoes = Regex("SECOES=([0-9,]+)").find(t)?.groupValues?.get(1)?.split(",")?.map { it.toInt() }?.toSet() ?: emptySet()
+        // TABELAS=2,4 e FIGURAS=3 marcam o tipo dos trechos; FIGURAS_ACIMA=2 e FIGURAS_FALHA=1 simulam figuras que ficaram de fora; VISAO=1 simula o gasto do modelo de visão
+        fun lista(nome: String) = Regex("$nome=([0-9,]+)").find(t)?.groupValues?.get(1)?.split(",")?.map { it.toInt() }?.toSet() ?: emptySet()
+        val tabelas = lista("TABELAS"); val figuras = lista("FIGURAS")
         val trechos = (1..n).joinToString(",") {
             val titulo = if (it in secoes) "\"Capítulo $it\"" else if (it == 1) "\"Introdução\"" else "null"
-            """{"ordem":$it,"numero_pagina":${if (t.startsWith("%PDF-")) it else "null"},"conteudo":"Trecho $it do material de teste.","titulo":$titulo,"nivel":${if (it in secoes) 1 else "null"}}"""
+            """{"ordem":$it,"numero_pagina":${if (t.startsWith("%PDF-")) it else "null"},"conteudo":"Trecho $it do material de teste.","titulo":$titulo,"nivel":${if (it in secoes) 1 else "null"},"tipo_conteudo":"${if (it in tabelas) "tabela" else if (it in figuras) "figura" else "texto"}"}"""
         }
-        responder(x, 200, """{"tipo":"pdf","paginas":null,"caracteres":${n * 30},"trechos":[$trechos]}""")
+        val avisos = """{"figuras_acima_do_limite":${marca(arq, "FIGURAS_ACIMA", 0)},"figuras_com_falha":${marca(arq, "FIGURAS_FALHA", 0)}}"""
+        val visao = if ("VISAO=1" in t) """{"modelo":"linguagem-falso","tokens_entrada":120,"tokens_saida":30}""" else """{"modelo":null,"tokens_entrada":0,"tokens_saida":0}"""
+        responder(x, 200, """{"tipo":"pdf","paginas":null,"caracteres":${n * 30},"trechos":[$trechos],"avisos":$avisos,"visao":$visao}""")
     }
 
     private fun embeddings(x: HttpExchange, corpo: ByteArray) {
         chamadas += "embeddings"
         if (falhasEmbeddings.getAndUpdate { if (it > 0) it - 1 else 0 } > 0) return responder(x, 500, """{"detail":"falha temporária"}""")
-        val n = Regex("\"textos\":\\[(.*)]", RegexOption.DOT_MATCHES_ALL).find(String(corpo))!!.groupValues[1].split("\",\"").size
-        val vetor = (1..1536).joinToString(",", "[", "]") { "0.01" }
-        responder(x, 200, """{"vetores":[${List(n) { vetor }.joinToString(",")}],"tokens":${n * 10},"modelo":"embedding-falso"}""")
+        val textos: List<String> = json.readTree(corpo)["textos"].values().asSequence().map { n -> n.asString() }.toList()
+        val vetores = textos.joinToString(",") { t -> vetorDe(t).joinToString(",", "[", "]") }
+        responder(x, 200, """{"vetores":[$vetores],"tokens":${textos.size * 10},"modelo":"embedding-falso"}""")
+    }
+
+    /** Substitui o vetor de um texto (para simular enunciados parecidos); nulo = vetor padrão do texto. */
+    @Volatile var vetorPersonalizado: (String) -> List<Double>? = { null }
+
+    /** Vetor padrão: uma posição (escolhida pelo texto) vale 1 e as demais 0, então textos diferentes ficam sem parecença e o mesmo texto dá similaridade 1. */
+    fun vetorDe(texto: String): List<Double> {
+        vetorPersonalizado(texto)?.let { return it }
+        val pos = Math.floorMod(texto.hashCode(), 1536)
+        return List(1536) { if (it == pos) 1.0 else 0.0 }
     }
 
     private fun geracao(x: HttpExchange, rota: String, corpo: ByteArray, resposta: () -> Unit) {

@@ -21,11 +21,14 @@ import java.util.UUID
  * @property titulo nome dado ao estudo.
  * @property assuntoId pasta do primeiro tópico.
  * @property assuntoIds todas as pastas onde o material tem tópicos (mais de uma depois que tópicos são movidos).
+ * @property figurasAcimaDoLimite figuras que não foram descritas por passarem do limite por material.
+ * @property figurasComFalha figuras que não puderam ser lidas ou descritas.
  */
 data class MaterialLinha(
     val id: UUID, val nomeArquivo: String, val tipoArquivo: String, val tamanhoBytes: Long, val paginas: Int?, val hash: String,
     val caminho: String, val status: String, val motivoFalha: String?, val criadoEm: Instant, val atualizadoEm: Instant,
     val titulo: String? = null, val assuntoId: UUID? = null, val assuntoIds: List<UUID> = emptyList(),
+    val figurasAcimaDoLimite: Int = 0, val figurasComFalha: Int = 0,
 )
 
 /**
@@ -57,6 +60,7 @@ class Dados(val jdbc: JdbcTemplate) {
         rs.getString("motivo_falha"), rs.getTimestamp("criado_em").toInstant(), rs.getTimestamp("atualizado_em").toInstant(),
         rs.getString("titulo"), rs.getObject("assunto_id", UUID::class.java),
         (rs.getArray("assunto_ids").array as Array<*>).map { it as UUID },
+        rs.getInt("figuras_acima_do_limite"), rs.getInt("figuras_com_falha"),
     )
 
     /** A pasta do estudo é a do primeiro tópico dele (nula enquanto não há tópicos); `assunto_ids` traz todas as pastas onde ele tem tópicos. */
@@ -145,6 +149,16 @@ class Dados(val jdbc: JdbcTemplate) {
         jdbc.query("SELECT numero_pagina FROM trecho WHERE material_id = ? ORDER BY ordem", { rs, _ -> rs.getObject(1) as Int? }, materialId)
 
     /**
+     * Grava quantas figuras do material ficaram sem descrição.
+     * @param id material.
+     * @param acimaDoLimite figuras além do limite por material.
+     * @param comFalha figuras ilegíveis ou que o modelo de visão não descreveu.
+     */
+    fun definirAvisosDeFiguras(id: UUID, acimaDoLimite: Int, comFalha: Int) {
+        jdbc.update("UPDATE material SET figuras_acima_do_limite = ?, figuras_com_falha = ? WHERE id = ?", acimaDoLimite, comFalha, id)
+    }
+
+    /**
      * Grava os trechos de um lote com seus embeddings.
      * @param usuario dono.
      * @param materialId material.
@@ -154,12 +168,12 @@ class Dados(val jdbc: JdbcTemplate) {
      */
     fun inserirTrechos(usuario: UUID, materialId: UUID, modelo: String, trechos: List<TrechoExtraido>, vetores: List<List<Double>>) {
         jdbc.batchUpdate(
-            "INSERT INTO trecho(id,usuario_id,material_id,ordem,numero_pagina,tipo_conteudo,conteudo,embedding,modelo_embedding) VALUES (?,?,?,?,?,'texto',?,?::vector,?)",
+            "INSERT INTO trecho(id,usuario_id,material_id,ordem,numero_pagina,tipo_conteudo,conteudo,embedding,modelo_embedding) VALUES (?,?,?,?,?,?,?,?::vector,?)",
             trechos.indices.toList(), 100,
         ) { ps, i ->
             val t = trechos[i]
             ps.setObject(1, UUID.randomUUID()); ps.setObject(2, usuario); ps.setObject(3, materialId); ps.setInt(4, t.ordem)
-            ps.setObject(5, t.numeroPagina); ps.setString(6, t.conteudo); ps.setString(7, vetores[i].joinToString(",", "[", "]")); ps.setString(8, modelo)
+            ps.setObject(5, t.numeroPagina); ps.setString(6, t.tipoConteudo); ps.setString(7, t.conteudo); ps.setString(8, vetores[i].joinToString(",", "[", "]")); ps.setString(9, modelo)
         }
     }
 

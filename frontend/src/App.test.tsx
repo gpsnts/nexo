@@ -6,15 +6,15 @@ type Rota = (corpo: any, headers: Record<string, string>) => [number, unknown?]
 
 // fetch falso por "METODO /caminho"; rota ausente = 404. Cada chamada fica em `chamadas`.
 function servidor(rotas: Record<string, Rota | [number, unknown?]>) {
-  const chamadas: { chave: string; corpo: any; headers: Record<string, string> }[] = []
+  const chamadas: { chave: string; corpo: any; headers: Record<string, string>; url: string }[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const chave = `${init.method ?? 'GET'} ${url.replace('/api', '').split('?')[0]}`
     const corpo = init.body ? JSON.parse(init.body as string) : undefined
     const headers = (init.headers ?? {}) as Record<string, string>
-    chamadas.push({ chave, corpo, headers })
+    chamadas.push({ chave, corpo, headers, url })
     const r = rotas[chave]
     const [status, dados] = typeof r === 'function' ? r(corpo, headers) : (r ?? [404, { mensagem: 'sem rota' }])
-    return { ok: status < 400, status, json: async () => dados }
+    return { ok: status < 400, status, json: async () => dados, blob: async () => new Blob([JSON.stringify(dados ?? '')]) }
   }))
   return chamadas
 }
@@ -154,6 +154,33 @@ test('excluir conta pede senha e confirmação e volta ao login', async () => {
   clicar('Excluir minha conta')
   await waitFor(() => expect(screen.getByRole('heading', { name: 'Entrar' })).toBeTruthy())
   expect(chamadas.find((c) => c.chave === 'DELETE /perfil')!.corpo).toEqual({ senha: 'senha-forte-1', confirmacao: 'EXCLUIR' })
+})
+
+test('exportar dados baixa o arquivo escolhido e avisa quando não há dados', async () => {
+  jaEntrouAntes()
+  URL.createObjectURL = vi.fn(() => 'blob:x'); URL.revokeObjectURL = vi.fn()
+  const clique = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  let vazio = false
+  const chamadas = servidor({
+    'POST /auth/refresh': [200, { token: 't', nome: 'Ana' }], 'GET /assuntos': geral,
+    'GET /perfil': [200, { nome: 'Ana', email: 'ana@x.com' }], 'GET /perfil/sessoes': [200, []],
+    'GET /exportacao': () => (vazio ? [404, { mensagem: 'Não há dados para exportar.', codigo: 'sem_dados' }] : [200, [{ a: 1 }]]),
+  })
+  render(<App />)
+  await screen.findByText('Olá, Ana')
+  clicar('Perfil')
+  await screen.findByText('ana@x.com')
+  fireEvent.click(screen.getByLabelText('Minhas questões')); fireEvent.click(screen.getByLabelText('JSON'))
+  clicar('Baixar arquivo')
+  expect((await screen.findByText('Arquivo baixado.'))).toBeTruthy()
+  expect(chamadas.find((c) => c.chave === 'GET /exportacao')!.url).toBe('/api/exportacao?conteudo=questoes&formato=json')
+  expect(clique).toHaveBeenCalledTimes(1)
+  expect(URL.revokeObjectURL).not.toHaveBeenCalled()  // só depois de um tempo, para o navegador começar o download
+  await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:x'), { timeout: 2500 })
+  vazio = true
+  clicar('Baixar arquivo')
+  expect((await screen.findByRole('alert')).textContent).toContain('Não há dados para exportar.')
+  clique.mockRestore()
 })
 
 test('sessão perdida no meio do uso volta ao login explicando o motivo', async () => {

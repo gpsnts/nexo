@@ -62,7 +62,7 @@ class LimitesIaTest : BaseIntegracao() {
     fun `uso conta os registros da janela e comeca zerado`() {
         val c = conta()
         assertEquals(0, uso(c)["operacoes"].asInt()); assertEquals(30, uso(c)["limiteOperacoes"].asInt()); assertEquals(60, uso(c)["janelaOperacoesMinutos"].asLong().toInt())
-        assertEquals(300, uso(c)["creditosLimite"].asInt()); assertEquals(0, uso(c)["creditosUsados"].asInt()); assertEquals(0, uso(c)["percentual"].asInt())
+        assertEquals(200, uso(c)["creditosLimite"].asInt()); assertEquals(0, uso(c)["creditosUsados"].asInt()); assertEquals(0, uso(c)["percentual"].asInt())
         assertEquals(202, enviar(c).status)
         assertEquals(2, uso(c)["operacoes"].asInt(), "indexação e sugestão de tópicos são duas operações com IA")
         assertEquals(2, uso(c)["creditosUsados"].asInt(), "o provedor falso custa zero, mas cada operação concluída vale ao menos 1 crédito")
@@ -113,14 +113,14 @@ class LimitesIaTest : BaseIntegracao() {
     @Test
     fun `cota semanal esgotada bloqueia ate a renovacao e diz quando volta, sem dolar na mensagem`() {
         val c = conta()
-        registro(c, minutosAtras = 5, custo = "0.03")       // 0,03 / 0,0001 = 300 créditos = a cota inteira
+        registro(c, minutosAtras = 5, custo = "0.02")       // 0,02 / 0,0001 = 200 créditos = a cota inteira
         val r = enviar(c)
         assertEquals(429, r.status); assertEquals("limite_creditos", r.corpo["codigo"].asString())
         val mensagem = r.corpo["mensagem"].asString()
         assertTrue("cota de IA desta semana" in mensagem && "renova" in mensagem && "US$" !in mensagem, mensagem)
         assertTrue(r.corpo["esperaSegundos"].asLong() in 1..7 * 86400L, r.corpo["esperaSegundos"].toString())
         val u = uso(c)
-        assertEquals(300, u["creditosUsados"].asInt()); assertEquals(100, u["percentual"].asInt()); assertTrue(u["renovaEm"].asString().isNotBlank())
+        assertEquals(200, u["creditosUsados"].asInt()); assertEquals(100, u["percentual"].asInt()); assertTrue(u["renovaEm"].asString().isNotBlank())
         assertEquals(false, u.has("gastoUsd") || u.has("limiteGastoUsd"), "o dólar não sai do servidor")
         assertEquals(0, materiais(c))
     }
@@ -128,7 +128,7 @@ class LimitesIaTest : BaseIntegracao() {
     @Test
     fun `abaixo da cota a operacao segue e consumo de semanas anteriores nao conta`() {
         val c = conta()
-        registro(c, minutosAtras = 24, custo = "0.0299")    // 299 créditos < 300
+        registro(c, minutosAtras = 24, custo = "0.0199")    // 199 créditos < 200
         assertEquals(202, enviar(c).status)
         val d = conta()
         registro(d, minutosAtras = 8 * 24 * 60, custo = "5.0")   // há 8 dias: semana anterior
@@ -144,7 +144,7 @@ class LimitesIaTest : BaseIntegracao() {
         registro(c, 3, custo = "0.00031", status = "concluida") // 3,1 -> 4
         registro(c, 3, custo = "0.00011", status = "falhou")    // 1,1 -> 2 (gastou algo antes de falhar)
         assertEquals(7, uso(c)["creditosUsados"].asInt())
-        assertEquals(2, uso(c)["percentual"].asInt())           // 7 de 300
+        assertEquals(3, uso(c)["percentual"].asInt())           // 7 de 200 = 3,5%, arredondado para baixo
     }
 
     @Test

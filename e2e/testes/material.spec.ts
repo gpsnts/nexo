@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { criarContaEEntrar, enviarMaterial, fixture } from '../ajudas'
 
-test('PDF de 50 páginas: barra até 100%, tópicos propostos, edição salva e persistida @celular', async ({ page }) => {
+test('PDF de 50 páginas: barra até 100%, tópicos propostos, edição salva e persistida @celular @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await enviarMaterial(page, fixture('apostila-50-paginas.pdf'))
   await expect(page).toHaveURL(/\/materiais\/[0-9a-f-]{36}/)
@@ -28,7 +28,7 @@ test('PDF de 50 páginas: barra até 100%, tópicos propostos, edição salva e 
   await expect(page.getByRole('button', { name: 'apostila-50-paginas.pdf' })).toBeVisible()
 })
 
-test('Reorganizar com IA gera um rascunho sem alterar nada até confirmar', async ({ page }) => {
+test('Reorganizar com IA gera um rascunho sem alterar nada até confirmar @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await enviarMaterial(page, fixture('apostila-50-paginas.pdf'))
   await expect(page.getByRole('heading', { name: 'Tópicos do material' })).toBeVisible({ timeout: 45_000 })
@@ -50,7 +50,7 @@ test('nome de arquivo muito longo não cria rolagem horizontal @celular', async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
-test('mesmo arquivo é recusado e leva ao material existente', async ({ page }) => {
+test('mesmo arquivo é recusado e leva ao material existente @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await enviarMaterial(page, fixture('apostila-50-paginas.pdf'))
   await expect(page.getByRole('heading', { name: 'Tópicos do material' })).toBeVisible({ timeout: 45_000 })
@@ -88,7 +88,7 @@ test('tópico livre é registrado sem material', async ({ page }) => {
   await expect(page.getByText(/Tópico livre/)).toBeVisible()
 })
 
-test('outro usuário não abre o material de quem enviou', async ({ browser }) => {
+test('outro usuário não abre o material de quem enviou @ia', async ({ browser }) => {
   const a = await (await browser.newContext()).newPage()
   await criarContaEEntrar(a)
   await enviarMaterial(a, fixture('apostila-50-paginas.pdf'))
@@ -101,7 +101,7 @@ test('outro usuário não abre o material de quem enviou', async ({ browser }) =
   await expect(b.getByRole('heading', { name: 'Tópicos do material' })).toHaveCount(0)
 })
 
-test('revisão em celular: a barra de salvar fixa fica curta e não cobre a lista @celular', async ({ page }) => {
+test('revisão em celular: a barra de salvar fixa fica curta e não cobre a lista @celular @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await enviarMaterial(page, fixture('apostila-50-paginas.pdf'))
   await expect(page.getByRole('heading', { name: 'Tópicos do material' })).toBeVisible({ timeout: 45_000 })

@@ -33,8 +33,8 @@ nexo:
   limiar-similaridade-repeticao: 0.90
   figuras-por-material: 30
   cota:                      # A tela mostra só a porcentagem usada e quando a cota renova; o dólar fica no registro interno
-    creditos-por-semana: 300 # semana de segunda a domingo; calibrar com o modelo real e a quantidade de usuários
-    usd-por-credito: 0.0001  # 1 crédito = US$ 0,0001 de custo estimado (gerar 5 questões com verificação ≈ 5 créditos)
+    creditos-por-semana: 200 # semana de segunda a domingo; 200 porque o modelo atual gasta mais créditos por operação que o anterior (que usava 300)
+    usd-por-credito: 0.0001  # 1 crédito = US$ 0,0001 de custo estimado (com o modelo atual, gerar 5 questões com verificação custa cerca de 30 créditos)
     minimo-por-operacao: 1
   revisao:
     repeticoes-inicial: 0
@@ -55,6 +55,9 @@ nexo:
     quantidade-maxima: 50
     assuntos-maximos: 10
     limite-minutos-maximo: 480  # igual ao CHECK da coluna prova.limite_minutos
+    creditos-por-questao-nova: 6  # estimativa (gerar e verificar uma questão, medida com o modelo atual) para avisar o custo antes de montar a prova
+    montagem-assincrona: true     # prova com questões novas é montada em segundo plano; só os testes rodam na hora
+    montagem-espera: PT1S         # intervalo entre consultas ao andamento de cada geração
   painel:
     semanas: 8
     semanas-maximo: 26
@@ -64,7 +67,8 @@ nexo:
   processamento:
     url: http://localhost:8000
     # segredo vem de NEXO_PROCESSAMENTO_SEGREDO (o mesmo do serviço Python); sem valor padrão de propósito
-    timeout: PT2M                         # extração de um material de 50 páginas
+    timeout: PT2M                         # chamadas comuns ao serviço (embeddings, tópicos, geração)
+    timeout-extracao: PT5M                # extração de um material de 50 páginas, com as descrições das figuras pelo modelo de visão
     tentativas: 3                         # 5xx e falha de rede; 4xx não é repetido
     espera: PT1S                          # multiplicada pelo número da tentativa
     saude-timeout: PT3S                   # consulta dos nomes dos modelos (/saude): uma tentativa só, para falhar rápido com o serviço fora do ar

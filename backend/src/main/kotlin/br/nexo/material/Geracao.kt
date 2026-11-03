@@ -389,8 +389,12 @@ class Geracao(
                 // "Aprovada" só entra na contagem quando o destino dela está decidido (gravada ou descartada por repetição): cancelar no meio não deixa `gravadas` errada.
                 val hash = hashDoEnunciado(q.enunciado)
                 if (!vistos.add(hash) || tx.execute { dados.existeHash(c.t.topicoId, hash) } == true) {
+                    log.debug("Questão descartada por enunciado igual: {}", q.enunciado.take(200))
                     c.v.aprovadas++; c.q.repetidas++
-                    tx.executeWithoutResult { gravar(c, "em_andamento", pct()) }
+                    tx.executeWithoutResult {
+                        dados.registrarDescarte(c.t.usuarioId, c.t.topicoId, c.t.registroId, dados.idPorHash(c.t.topicoId, hash), "hash", 1.0)
+                        gravar(c, "em_andamento", pct())
+                    }
                     continue
                 }
                 continuar(c)
@@ -398,6 +402,17 @@ class Geracao(
                 if (emb.vetores.size != 1 || emb.vetores[0].size != Indexador.DIMENSAO) throw FalhaProcessamento("falha_ia", "Embedding fora do esperado")
                 c.q.tokensEntrada += emb.tokens
                 c.q.custo = c.q.custo.add(conteudo.custoEmbedding(emb.modelo, emb.tokens))
+                // mesmo sentido com outras palavras: a questão mais próxima do tópico, comparada ao limiar configurado
+                val parecida = tx.execute { dados.maisParecida(c.t.topicoId, emb.vetores[0]) }
+                if (parecida != null && parecida.second >= props.limiarSimilaridadeRepeticao) {
+                    log.debug("Questão descartada por similaridade {} (limiar {}): {}", "%.4f".format(parecida.second), props.limiarSimilaridadeRepeticao, q.enunciado.take(200))
+                    c.v.aprovadas++; c.q.repetidas++
+                    tx.executeWithoutResult {
+                        dados.registrarDescarte(c.t.usuarioId, c.t.topicoId, c.t.registroId, parecida.first, "cosseno", parecida.second)
+                        gravar(c, "em_andamento", pct())
+                    }
+                    continue
+                }
                 try {
                     tx.executeWithoutResult {
                         if (!dados.estaAberto(c.t.registroId)) throw Cancelada()

@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { criarContaEEntrar, enviarMaterial, fixture, reiniciarBackend, sql } from '../ajudas'
 
 // Provedores de IA falsos: o fluxo é o do provedor real; o conteúdo é só um eco do material.
-test('tópico de material: gera resumo e questões com barra, grava só as aprovadas e lista sem o gabarito @celular', async ({ page }) => {
+test('tópico de material: gera resumo e questões com barra, grava só as aprovadas e lista sem o gabarito @celular @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await enviarMaterial(page, fixture('apostila-50-paginas.pdf'))
   await expect(page.getByRole('heading', { name: 'Tópicos do material' })).toBeVisible({ timeout: 45_000 })
@@ -23,7 +23,7 @@ test('tópico de material: gera resumo e questões com barra, grava só as aprov
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
-test('tópico livre: gera pelo conhecimento geral do modelo', async ({ page }) => {
+test('tópico livre: gera pelo conhecimento geral do modelo @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await page.goto('/novo-estudo')
   await page.getByLabel('Tópico', { exact: true }).fill('Movimento Retilíneo Uniforme')
@@ -35,7 +35,7 @@ test('tópico livre: gera pelo conhecimento geral do modelo', async ({ page }) =
   await expect(page.getByText(/2 questões gravadas/)).toBeVisible({ timeout: 45_000 })
 })
 
-test('cancelar uma geração em andamento (modelo lento): avisa, não grava nada e libera novo pedido', async ({ page }) => {
+test('cancelar uma geração em andamento (modelo lento): avisa, não grava nada e libera novo pedido @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await page.goto('/novo-estudo')
   await page.getByLabel('Tópico', { exact: true }).fill('Termodinâmica LENTO') // o modelo falso demora 6 s por chamada neste tópico
@@ -56,7 +56,7 @@ test('cancelar uma geração em andamento (modelo lento): avisa, não grava nada
   await expect(page.getByText(/Última geração/)).toHaveCount(0)
 })
 
-test('backend reiniciado no meio de uma geração: a tela não congela e dá para cancelar', async ({ page }) => {
+test('backend reiniciado no meio de uma geração: a tela não congela e dá para cancelar @ia', async ({ page }) => {
   test.setTimeout(150_000)
   await criarContaEEntrar(page)
   await page.goto('/novo-estudo')
@@ -80,7 +80,7 @@ test('backend reiniciado no meio de uma geração: a tela não congela e dá par
   await expect(page.getByRole('button', { name: 'Gerar questões' })).toBeEnabled()
 })
 
-test('início: materiais e tópicos livres na mesma lista, com o tipo de cada um @celular', async ({ page }) => {
+test('início: materiais e tópicos livres na mesma lista, com o tipo de cada um @celular @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await enviarMaterial(page, fixture('apostila-50-paginas.pdf'))
   await expect(page.getByRole('heading', { name: 'Tópicos do material' })).toBeVisible({ timeout: 45_000 })
@@ -149,7 +149,7 @@ test('o cadastro e o envio avisam que o conteúdo é processado por um serviço 
   await expect(page.getByText(/processado por um serviço externo de inteligência artificial/)).toBeVisible()
   await criarContaEEntrar(page)
   await page.goto('/novo-estudo')
-  await expect(page.getByText(/O texto do material é enviado a um serviço externo de inteligência artificial/)).toBeVisible()
+  await expect(page.getByText(/O texto do material e as imagens das figuras/)).toBeVisible()
   await expect(page.getByText(/Envie apenas material que você pode compartilhar/)).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })

@@ -1,4 +1,5 @@
 """Adaptadores do Gemini (Google AI Studio): modelo de linguagem (`generateContent`) e embedding (`batchEmbedContents`). Chave no cabeçalho `x-goog-api-key`."""
+import base64
 import math
 import time
 
@@ -71,18 +72,16 @@ class ModeloLinguagemGemini:
 
         Args:
             prompt: texto do pedido.
-            imagens: não suportado ainda.
+            imagens: imagens PNG enviadas junto com o texto (o modelo precisa aceitar imagem).
 
         Returns:
             RespostaLinguagem com o texto e os tokens (saída inclui os de raciocínio).
 
         Raises:
             ErroProvedor: rede, status ruim, resposta inesperada, bloqueada, cortada ou vazia.
-            NotImplementedError: se `imagens` for informado.
         """
-        if imagens:
-            raise NotImplementedError("descrição de figuras ainda não é suportada")
-        corpo = {"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"maxOutputTokens": self._max_tokens}}
+        partes = [{"text": prompt}] + [{"inlineData": {"mimeType": "image/png", "data": base64.b64encode(i).decode()}} for i in (imagens or [])]
+        corpo = {"contents": [{"parts": partes}], "generationConfig": {"maxOutputTokens": self._max_tokens}}
         if self._temperatura is not None:
             corpo["generationConfig"]["temperature"] = self._temperatura
         r = _enviar(self._cliente, f"/v1beta/models/{self.nome}:generateContent", self._chave, corpo, "modelo de linguagem", self._espera)

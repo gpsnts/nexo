@@ -14,7 +14,7 @@ const auditar = async (page: Page, onde: string) => {
 }
 
 for (const tema of ['light', 'dark'] as const) {
-  test(`telas internas sem violações de acessibilidade no tema ${tema}`, async ({ page }) => {
+  test(`telas internas sem violações de acessibilidade no tema ${tema} @ia`, async ({ page }) => {
     await criarContaEEntrar(page)
     await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), tema)
     await auditar(page, `início (${tema})`)
@@ -40,7 +40,7 @@ for (const tema of ['light', 'dark'] as const) {
 }
 
 for (const tema of ['light', 'dark'] as const) {
-  test(`provas, tópicos da pasta, histórico, fontes e exclusão sem violações de acessibilidade no tema ${tema} @celular`, async ({ page }) => {
+  test(`provas, tópicos da pasta, histórico, fontes e exclusão sem violações de acessibilidade no tema ${tema} @celular @ia`, async ({ page }) => {
     const erros: string[] = []
     page.on('console', (m) => { if (m.type() === 'error') erros.push(m.text()) })
     page.on('pageerror', (e) => erros.push(String(e)))

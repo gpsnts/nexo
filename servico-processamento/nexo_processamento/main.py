@@ -2,13 +2,13 @@
 import hmac
 import os
 
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
-from nexo_processamento import extracao, geracao, topicos
+from nexo_processamento import extracao, figuras, geracao, topicos
 from nexo_processamento.config import criar_embedding, criar_linguagem
 from nexo_processamento.divisao import dividir
 from nexo_processamento.extracao import FormatoInvalido, SemTexto
@@ -102,31 +102,44 @@ def inspecionar(arquivo: UploadFile = File(...)):
 
 
 @app.post("/interno/processar", dependencies=[Depends(autenticar)])
-def processar(arquivo: UploadFile = File(...)):
-    """Extrai o texto e divide em trechos.
+def processar(arquivo: UploadFile = File(...), max_figuras: int = Form(extracao.MAX_FIGURAS_PADRAO, ge=0, le=200)):
+    """Extrai o texto, as tabelas e as figuras, descreve as figuras com o modelo de visão e divide tudo em trechos.
 
     Args:
         arquivo: PDF, DOCX ou TXT.
+        max_figuras: figuras descritas por material; as demais são ignoradas e contadas.
 
     Returns:
-        JSON com `tipo`, `paginas`, `caracteres` e a lista de `trechos` (ordem, página, conteúdo, título, nível).
+        JSON com `tipo`, `paginas`, `caracteres`, a lista de `trechos` (ordem, página, conteúdo, título, nível, `tipo_conteudo`), os `avisos` de figuras ignoradas (`figuras_acima_do_limite` e `figuras_com_falha`) e a `visao` (modelo e tokens gastos com as descrições; modelo nulo se nenhuma figura foi descrita).
 
     Raises:
         HTTPException: 413 grande demais; 422 formato inválido ou sem texto.
     """
     dados = _ler(arquivo)
     try:
-        doc = extracao.extrair(dados)
+        doc = extracao.extrair(dados, max_figuras)
     except FormatoInvalido as e:
         raise HTTPException(422, {"codigo": "formato_invalido", "mensagem": str(e)})
     except SemTexto as e:
         raise HTTPException(422, {"codigo": "sem_texto", "mensagem": str(e)})
-    trechos = dividir(doc.blocos, ALVO, MAXIMO)
+    modelo = None
+    if any(b.tipo == "figura" for b in doc.blocos):
+        try:
+            modelo = criar_linguagem()
+        except Exception:  # modelo mal configurado: as figuras viram aviso, o texto segue (a configuração falha nas demais operações, com a mensagem própria)
+            modelo = None
+    descritas = figuras.descrever(doc.blocos, modelo)
+    trechos = dividir(descritas.blocos, ALVO, MAXIMO)
     return {
         "tipo": doc.tipo,
         "paginas": doc.paginas,
         "caracteres": doc.caracteres,
-        "trechos": [{"ordem": t.ordem, "numero_pagina": t.numero_pagina, "conteudo": t.conteudo, "titulo": t.titulo, "nivel": t.nivel} for t in trechos],
+        "trechos": [
+            {"ordem": t.ordem, "numero_pagina": t.numero_pagina, "conteudo": t.conteudo, "titulo": t.titulo, "nivel": t.nivel, "tipo_conteudo": t.tipo_conteudo}
+            for t in trechos
+        ],
+        "avisos": {"figuras_acima_do_limite": doc.figuras_acima_do_limite, "figuras_com_falha": doc.figuras_com_falha + descritas.com_falha},
+        "visao": {"modelo": modelo.nome if modelo is not None and descritas.tentou else None, "tokens_entrada": descritas.tokens_entrada, "tokens_saida": descritas.tokens_saida},
     }
 
 

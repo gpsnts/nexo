@@ -84,15 +84,30 @@ def test_resposta_cortada_vazia_ou_inesperada():
     assert e.value.codigo == "resposta_inesperada" and e.value.retentavel
 
 
-def test_falha_de_rede_e_retentavel_e_imagens_ficam_para_a_f6c():
+def test_falha_de_rede_e_retentavel():
     def h(req):
         raise httpx.ConnectTimeout("t")
 
     with pytest.raises(ErroProvedor) as e:
         _modelo(h).gerar("x")
     assert e.value.codigo == "provedor_indisponivel" and e.value.retentavel
-    with pytest.raises(NotImplementedError):
-        _modelo(lambda req: _ok()).gerar("x", imagens=[b"png"])
+
+
+def test_imagens_vao_no_pedido_como_url_de_dados_junto_do_texto():
+    visto = {}
+
+    def h(req: httpx.Request):
+        visto["corpo"] = json.loads(req.read())
+        return _ok("descrição da figura", 300, 40)
+
+    r = _modelo(h).gerar("descreva", imagens=[b"\x89PNGdados"])
+    assert (r.texto, r.tokens_entrada, r.tokens_saida) == ("descrição da figura", 300, 40)
+    partes = visto["corpo"]["messages"][0]["content"]
+    assert partes[0] == {"type": "text", "text": "descreva"}
+    assert partes[1]["type"] == "image_url"
+    assert partes[1]["image_url"]["url"].startswith("data:image/png;base64,")
+    import base64
+    assert base64.b64decode(partes[1]["image_url"]["url"].split(",", 1)[1]) == b"\x89PNGdados"
 
 
 def test_fabrica_exige_chave_e_nome_do_modelo(monkeypatch):

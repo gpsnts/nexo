@@ -186,9 +186,10 @@ def test_docx_com_tabela_entra_na_ordem_do_documento(cliente):
     d.add_paragraph("Depois da tabela, outro paragrafo de conclusao.")
     buf = io.BytesIO()
     d.save(buf)
-    texto = _enviar(cliente, "/interno/processar", buf.getvalue()).json()["trechos"][0]["conteudo"]
-    assert texto.index("introdutorio") < texto.index("celula 00") < texto.index("conclusao")
-    assert texto.count("celula 00") == 1 and "celula 10 | celula 11" in texto
+    trechos = _enviar(cliente, "/interno/processar", buf.getvalue()).json()["trechos"]
+    assert [t["tipo_conteudo"] for t in trechos] == ["texto", "tabela", "texto"]
+    assert "introdutorio" in trechos[0]["conteudo"] and "conclusao" in trechos[2]["conteudo"]
+    assert trechos[1]["conteudo"].count("celula 00") == 1 and "| celula 10 | celula 11 |" in trechos[1]["conteudo"]
 
 
 def test_docx_so_com_tabela_nao_e_sem_texto(cliente):

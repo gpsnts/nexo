@@ -229,3 +229,50 @@ def test_orientacao_entra_no_pedido_como_dado_e_respeita_o_material():
     assert "foque em datas" in com_material and "tudo o que afirmar precisa estar nos trechos" in com_material
     assert "ORIENTAÇÃO" not in geracao.prompt_chat("T", [], [], "oi") and "ORIENTAÇÃO" not in geracao.prompt_resumo("T", [], "   ")
     assert len(geracao.prompt_resumo("T", [], "x" * 900).split("«")[1].split("»")[0]) == geracao.ORIENTACAO_MAX
+
+
+def test_prompt_de_questoes_pede_alternativas_de_tamanho_parecido():
+    p = geracao.prompt_questoes("Tema", [{"ordem": 1, "conteudo": "texto"}], 3, [])
+    assert "a correta não pode ser a mais longa" in p and "absurdo evidente" in p
+
+
+class _ModeloRoteirizado:
+    """Modelo de teste: devolve respostas prontas, na ordem, e guarda os pedidos."""
+    nome = "roteirizado"
+
+    def __init__(self, *respostas):
+        self.respostas, self.pedidos = list(respostas), []
+
+    def gerar(self, prompt, imagens=None):
+        from nexo_processamento.ia.linguagem import RespostaLinguagem
+        self.pedidos.append(prompt)
+        return RespostaLinguagem(self.respostas.pop(0), 10, 5)
+
+
+def _q(correta, erradas):
+    return {"enunciado": "Pergunta?", "correta": correta, "erradas": erradas, "ordens": []}
+
+
+def test_correta_do_tamanho_das_outras_nao_gasta_chamada_extra():
+    from nexo_processamento import geracao
+    m = _ModeloRoteirizado()
+    q = _q("Montar proteinas", ["Guardar o DNA todo", "Gerar energia ATP", "Digerir restos"])
+    assert geracao.equilibrar_tamanho(m, [q]) == ([q], 0, 0) and m.pedidos == []
+
+
+def test_correta_bem_mais_longa_tem_as_erradas_reescritas_em_uma_chamada_so_e_a_correta_fica_intacta():
+    from nexo_processamento import geracao
+    longa = _q("Montar proteinas a partir do RNA mensageiro lido pelo ribossomo", ["Guardar DNA", "Gerar ATP", "Digerir restos"])
+    ok = _q("Montar proteinas", ["Guardar o DNA todo", "Gerar energia ATP", "Digerir restos"])
+    m = _ModeloRoteirizado('[{"i": 0, "erradas": ["Guardar o DNA da celula dentro do nucleo celular inteiro", "Gerar energia ATP nas mitocondrias de toda a celula viva", "Digerir restos celulares com enzimas dos lisossomos ativos"]}]')
+    saida, te, ts = geracao.equilibrar_tamanho(m, [longa, ok])
+    assert len(m.pedidos) == 1 and "ajuste" in m.pedidos[0] and (te, ts) == (10, 5)
+    assert saida[0]["correta"] == longa["correta"] and saida[0]["erradas"][0].startswith("Guardar o DNA da celula") and saida[1] == ok
+
+
+def test_resposta_ilegivel_ou_que_nao_resolve_mantem_a_questao_original():
+    from nexo_processamento import geracao
+    longa = _q("Montar proteinas a partir do RNA mensageiro lido pelo ribossomo", ["Guardar DNA", "Gerar ATP", "Digerir restos"])
+    assert geracao.equilibrar_tamanho(_ModeloRoteirizado("nao e json"), [longa])[0] == [longa]
+    assert geracao.equilibrar_tamanho(_ModeloRoteirizado('[{"i": 0, "erradas": ["a", "b", "c"]}]'), [longa])[0] == [longa], "continua se destacando"
+    assert geracao.equilibrar_tamanho(_ModeloRoteirizado('[{"i": 0, "erradas": ["so uma"]}]'), [longa])[0] == [longa]

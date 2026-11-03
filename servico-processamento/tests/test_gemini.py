@@ -91,8 +91,24 @@ def test_linguagem_cortada_bloqueada_vazia_e_rede():
     with pytest.raises(ErroProvedor) as e:
         _llm(queda).gerar("x")
     assert e.value.codigo == "provedor_indisponivel" and e.value.retentavel
-    with pytest.raises(NotImplementedError):
-        _llm(lambda req: _ok()).gerar("x", imagens=[b"png"])
+
+
+def test_gemini_imagens_vao_como_dados_embutidos_junto_do_texto():
+    import base64
+    import json
+
+    visto = {}
+
+    def h(req: httpx.Request):
+        visto["corpo"] = json.loads(req.read())
+        return _ok("descrição da figura", 300, 40)
+
+    r = _llm(h).gerar("descreva", imagens=[b"\x89PNGdados"])
+    assert (r.texto, r.tokens_entrada, r.tokens_saida) == ("descrição da figura", 300, 40)
+    partes = visto["corpo"]["contents"][0]["parts"]
+    assert partes[0] == {"text": "descreva"}
+    assert partes[1]["inlineData"]["mimeType"] == "image/png"
+    assert base64.b64decode(partes[1]["inlineData"]["data"]) == b"\x89PNGdados"
 
 
 def _emb(handler, modelo="gemini-embedding-2"):

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api'
 import Cabecalho from './Cabecalho'
-import { DadosPessoais, ExcluirConta, TrocaEmail, TrocaSenha } from './PerfilSecoes'
+import { DadosPessoais, ExcluirConta, ExportarDados, TrocaEmail, TrocaSenha } from './PerfilSecoes'
 import Sessoes from './Sessoes'
 import { useTitulo } from './titulo'
 
@@ -9,7 +9,7 @@ import { useTitulo } from './titulo'
 type Dados = { nome: string; email: string }
 
 /**
- * Tela do perfil: dados pessoais, troca de e-mail e de senha, sessões ativas e exclusão da conta.
+ * Tela do perfil: dados pessoais, troca de e-mail e de senha, sessões ativas, exportação dos dados e exclusão da conta.
  * @param props nome: nome atual; aoIrInicio: volta ao início; aoSair: encerra a sessão; aoExcluir: chamado após excluir a conta; aoAtualizarNome: avisa o novo nome.
  * @returns a tela.
  */
@@ -27,13 +27,14 @@ export default function Perfil({ nome: nomeAtual, aoIrInicio, aoSair, aoExcluir,
         <h1 tabIndex={-1}>Meu perfil</h1>
         {dados && <p className="sub">{dados.email}</p>}
         <nav aria-label="Seções do perfil" className="indice">
-          <a href="#secao-dados">Dados pessoais</a><a href="#secao-email">E-mail</a><a href="#secao-senha">Senha</a><a href="#secao-sessoes">Sessões</a><a href="#secao-excluir">Excluir conta</a>
+          <a href="#secao-dados">Dados pessoais</a><a href="#secao-email">E-mail</a><a href="#secao-senha">Senha</a><a href="#secao-sessoes">Sessões</a><a href="#secao-exportar">Exportar dados</a><a href="#secao-excluir">Excluir conta</a>
         </nav>
         <div className="grade grade-perfil">
           <DadosPessoais nomeInicial={dados?.nome ?? nomeAtual} key={dados?.nome ?? nomeAtual} aoSalvar={(d) => { setDados(d); aoAtualizarNome(d.nome) }} />
           <TrocaEmail email={dados?.email ?? ''} />
           <TrocaSenha email={dados?.email ?? ''} />
           <Sessoes />
+          <ExportarDados />
           <ExcluirConta email={dados?.email ?? ''} aoExcluir={aoExcluir} />
         </div>
       </main>

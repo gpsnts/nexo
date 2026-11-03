@@ -116,9 +116,12 @@ class Indexador(
 
         // Extração e divisão (uma chamada): 2 -> 30
         val arquivo = armazenamento.ler(m.caminho)
-        val extracao = proc.processar(m.nomeArquivo, arquivo)
+        val extracao = proc.processar(m.nomeArquivo, arquivo, props.figurasPorMaterial.coerceIn(0, MAX_FIGURAS_DO_SERVICO))
         if (extracao.trechos.isEmpty()) throw FalhaProcessamento("sem_texto", "Extração sem trechos")
-        tx.executeWithoutResult { dados.progresso(idx, 30) }
+        tx.executeWithoutResult {
+            dados.definirAvisosDeFiguras(t.materialId, extracao.avisos.acimaDoLimite, extracao.avisos.comFalha)
+            dados.progresso(idx, 30)
+        }
 
         // Embeddings em lotes; cada lote grava os trechos na própria transação: 30 -> 95
         var tokens = 0
@@ -135,7 +138,10 @@ class Indexador(
             }
         }
         val custo = props.precoEmbedding(modelo)?.multiply(BigDecimal(tokens))?.divide(BigDecimal(1_000_000), 6, java.math.RoundingMode.HALF_UP) ?: BigDecimal.ZERO
-        tx.executeWithoutResult { dados.concluirRegistro(idx, modelo, tokens, 0, custo) }
+        // o gasto do modelo de visão com as figuras soma ao registro da indexação (tokens e custo), como nas demais chamadas internas
+        val v = extracao.visao
+        val custoVisao = if (v.modelo != null) precos.custoLinguagem(v.modelo, v.tokensEntrada, v.tokensSaida) else BigDecimal.ZERO
+        tx.executeWithoutResult { dados.concluirRegistro(idx, modelo, tokens + v.tokensEntrada, v.tokensSaida, custo.add(custoVisao)) }
 
         sugerirTopicos(t, extracao.trechos, modeloLinguagem)
     }
@@ -177,6 +183,7 @@ class Indexador(
 
     companion object {
         const val DIMENSAO = 1536
+        const val MAX_FIGURAS_DO_SERVICO = 200  // o serviço de processamento recusa mais que isso; valor configurado acima dele é reduzido
         const val MODELO_ESTRUTURA = "regras-de-estrutura"  // registro_geracao.modelo_ia quando os tópicos vêm dos títulos, sem modelo de linguagem
         val CODIGOS_CONHECIDOS = setOf("sem_texto", "formato_invalido")
         /** O serviço de IA está mal configurado ou o provedor recusou a conta: reenviar o arquivo não resolve (o material guarda `configuracao_ia`; o registro, `falha_ia`). */

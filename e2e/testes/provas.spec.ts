@@ -18,7 +18,7 @@ async function topicoComQuestoes(page: import('@playwright/test').Page, nome: st
 }
 
 // Provedores falsos: não sabemos qual alternativa é a certa; o teste responde sempre a A.
-test('provas: ordenar tópicos, montar com tópico-limite e tempo, responder, ver o resultado e refazer @celular', async ({ page }) => {
+test('provas: ordenar tópicos, montar com tópico-limite e tempo, responder, ver o resultado e refazer @celular @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await topicoComQuestoes(page, 'Termologia', 4)
   await topicoComQuestoes(page, 'Óptica', 3)
@@ -85,7 +85,7 @@ test('provas: ordenar tópicos, montar com tópico-limite e tempo, responder, ve
   await expect(page.getByText(/Óptica/).first()).toBeVisible()
 })
 
-test('vários materiais: fonte rejeitada se já é de outro tópico, e excluir o material mantém o tópico @celular', async ({ page }) => {
+test('vários materiais: fonte rejeitada se já é de outro tópico, e excluir o material mantém o tópico @celular @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await enviarMaterial(page, fixture('apostila-50-paginas.pdf'))
   await expect(page.getByRole('heading', { name: 'Tópicos do material' })).toBeVisible({ timeout: 45_000 })

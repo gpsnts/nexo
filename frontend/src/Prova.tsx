@@ -28,6 +28,12 @@ export default function Prova({ id, aoIrInicio, aoIrPerfil, aoSair }: { id: stri
    */
   const carregar = useCallback(() => api<ProvaAberta>(`/provas/${id}`).then(setAberta).catch((e) => (e instanceof ErroApi && e.status === 404 ? setNaoEncontrada(true) : setFalha(true))), [id])
   useEffect(() => { carregar() }, [carregar])
+  const montandoAgora = aberta?.prova.status === 'montando'
+  useEffect(() => {
+    if (!montandoAgora) return
+    const t = setInterval(carregar, 2000)  // a montagem roda no servidor: consulta o andamento até a prova ficar pronta
+    return () => clearInterval(t)
+  }, [montandoAgora, carregar])
 
   /**
    * Começa a prova (inicia o relógio, se houver limite).
@@ -49,10 +55,19 @@ export default function Prova({ id, aoIrInicio, aoIrPerfil, aoSair }: { id: stri
           <div role="alert"><p className="erro">Esta prova não existe ou não é da sua conta.</p><button type="button" onClick={() => irPara('/provas')}>Ver minhas provas</button></div>
         ) : falha ? (
           <div role="alert"><p className="erro">Não foi possível abrir a prova.</p><button type="button" onClick={() => { setFalha(false); carregar() }}>Tentar de novo</button></div>
-        ) : !aberta || !p ? <Carregando /> : p.status === 'gerada' ? (
+        ) : !aberta || !p ? <Carregando /> : p.status === 'montando' ? (
+          <Montagem prova={p} />
+        ) : p.status === 'falhou' ? (
+          <div role="alert">
+            <p className="erro">{motivoDaFalha(p.motivoFalha)}</p>
+            <p className="sub">O que a IA chegou a gerar ficou salvo nos tópicos e já contou na sua cota de IA desta semana.</p>
+            <button type="button" onClick={() => irPara('/provas')}>Ver minhas provas</button>
+          </div>
+        ) : p.status === 'gerada' ? (
           <section className="secao" aria-labelledby="titulo-intro">
             <h2 id="titulo-intro">Pronta para começar</h2>
             <Escopo prova={p} />
+            {(p.solicitadas ?? p.quantidade) > p.quantidade && <p className="aviso-ia" role="status">Foram pedidas {p.solicitadas} questões, mas só {p.quantidade} entraram: a IA gerou {p.questoesGeradas ?? 0} das {p.questoesNovas ?? 0} novas (as demais foram rejeitadas na verificação, repetidas ou barradas por limite) e o banco não tinha mais questões para completar. Você pode começar assim ou excluir a prova e pedir de novo.</p>}
             {p.limiteMinutos && <p className="aviso-ia" role="note">Esta prova tem limite de {p.limiteMinutos} minutos. O relógio começa agora e não para; ao acabar, o que ficar sem resposta conta como errado.</p>}
             {erro && <p className="erro" role="alert">{erro}</p>}
             <button type="button" onClick={comecar} disabled={iniciando}>{iniciando ? 'Aguarde…' : 'Começar prova'}</button>
@@ -86,7 +101,56 @@ function Escopo({ prova }: { prova: ProvaResumo }) {
     <ul className="escopo">
       {prova.assuntos.map((a) => <li key={a.id}><strong>{a.nome}</strong>: {a.topicoLimite ? `até o tópico "${a.topicoLimite}"` : 'todos os tópicos'}</li>)}
       <li>{prova.quantidade} {prova.quantidade === 1 ? 'questão' : 'questões'}{prova.limiteMinutos ? `, ${prova.limiteMinutos} minutos` : ', sem limite de tempo'}</li>
+      {(prova.questoesGeradas ?? 0) > 0 && <li>{prova.questoesGeradas} {prova.questoesGeradas === 1 ? 'questão nova gerada' : 'questões novas geradas'} pela IA para esta prova (ficam salvas nos tópicos)</li>}
+      {prova.orientacao && <li>Orientação dada às questões novas: “{prova.orientacao}”</li>}
     </ul>
+  )
+}
+
+/**
+ * Explica em português por que a montagem de uma prova falhou.
+ * @param motivo código do motivo guardado na prova, se houver.
+ * @returns a mensagem para o estudante.
+ */
+function motivoDaFalha(motivo?: string | null): string {
+  switch (motivo) {
+    case 'falha_ia': return 'Não foi possível montar a prova: o serviço de IA falhou ou ficou indisponível durante a geração. Tente de novo mais tarde.'
+    case 'limite_creditos': return 'Não foi possível montar a prova: a sua cota de IA desta semana acabou durante a geração.'
+    case 'limite_operacoes': return 'Não foi possível montar a prova: foram muitas operações de IA em pouco tempo. Tente de novo daqui a alguns minutos.'
+    case 'ia_indisponivel': return 'Não foi possível montar a prova: a IA está indisponível agora. Tente de novo mais tarde.'
+    case 'fila_cheia': return 'Não foi possível montar a prova: há muitas provas sendo montadas. Tente de novo em instantes.'
+    case 'interrompida': return 'A montagem da prova foi interrompida (o servidor reiniciou no meio dela). Exclua esta prova e peça de novo.'
+    case 'cancelada': return 'A montagem foi cancelada.'
+    case 'sem_questoes': return 'Não foi possível montar a prova: a IA não gerou nenhuma questão aproveitável (todas foram rejeitadas na verificação ou eram repetidas) e não havia questões no banco para completar.'
+    default: return 'Não foi possível montar a prova. Exclua esta prova e tente de novo.'
+  }
+}
+
+/**
+ * Andamento da montagem de uma prova com questões novas: barra, texto e botão para cancelar (excluir a prova).
+ * @param props prova: a prova em montagem.
+ * @returns a seção com o andamento.
+ */
+function Montagem({ prova }: { prova: ProvaResumo }) {
+  const novas = prova.questoesNovas ?? 0, geradas = prova.questoesGeradas ?? 0
+  const pct = novas > 0 ? Math.min(99, Math.round(geradas * 100 / novas)) : 0
+  const [ocupado, setOcupado] = useState(false)
+  /**
+   * Cancela a montagem: exclui a prova; o que a IA já gerou fica salvo nos tópicos.
+   * @returns promessa resolvida quando termina.
+   */
+  async function cancelar() {
+    setOcupado(true)
+    try { await api(`/provas/${prova.id}`, { metodo: 'DELETE' }); irPara('/provas') } catch { setOcupado(false) }
+  }
+  return (
+    <section className="secao" aria-labelledby="titulo-montagem">
+      <h2 id="titulo-montagem">Montando a prova</h2>
+      <Escopo prova={prova} />
+      <progress className="barra" max={100} value={pct} aria-label="Andamento da montagem da prova" aria-valuetext={`${geradas} de ${novas} questões novas geradas`} />
+      <p className="sub" role="status">{geradas} de {novas} questões novas geradas. Isso leva alguns minutos; você pode sair desta página e voltar depois, a prova continua sendo montada.</p>
+      <button type="button" className="secundario" onClick={cancelar} disabled={ocupado}>{ocupado ? 'Aguarde…' : 'Cancelar montagem'}</button>
+    </section>
   )
 }
 

@@ -57,7 +57,7 @@ test('perfil: o índice leva a cada seção @celular', async ({ page }) => {
   await criarContaEEntrar(page)
   await page.goto('/perfil')
   const indice = page.getByRole('navigation', { name: 'Seções do perfil' })
-  await expect(indice.getByRole('link')).toHaveCount(5)
+  await expect(indice.getByRole('link')).toHaveCount(6)
   await indice.getByRole('link', { name: 'Excluir conta' }).click()
   await expect(page.getByRole('heading', { name: 'Excluir conta' })).toBeInViewport()
 })

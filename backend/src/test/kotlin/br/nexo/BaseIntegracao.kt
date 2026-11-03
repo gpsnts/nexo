@@ -55,7 +55,7 @@ class RelogioTesteConfig {
 // Testes rodam sem segundo plano (e-mails aparecem na hora) e com limite de taxa alto; LimiteTaxaTest baixa o limite.
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = ["nexo.conta.assincrono=false", "nexo.material.assincrono=false", "nexo.geracao.assincrono=false", "nexo.limite-publico.requisicoes=100000"],
+    properties = ["nexo.conta.assincrono=false", "nexo.material.assincrono=false", "nexo.geracao.assincrono=false", "nexo.prova.montagem-assincrona=false", "nexo.limite-publico.requisicoes=100000"],
 )
 @org.springframework.context.annotation.Import(EmailTesteConfig::class, RelogioTesteConfig::class)
 abstract class BaseIntegracao {

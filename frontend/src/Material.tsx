@@ -5,7 +5,7 @@ import Andamento from './Andamento'
 import Cabecalho from './Cabecalho'
 import ExcluirMaterial from './ExcluirMaterial'
 import { IconeDocumento } from './Icones'
-import { AVISO_IA, avisarUso, capaDe, nomeDoEstudo, type Assunto, type Material as Dados } from './estudo'
+import { AVISO_IA, avisarUso, avisoDeFiguras, capaDe, nomeDoEstudo, type Assunto, type Material as Dados } from './estudo'
 import RevisaoTopicos from './RevisaoTopicos'
 import { useTitulo } from './titulo'
 
@@ -47,6 +47,7 @@ export default function Material({ id, aoIrInicio, aoIrPerfil, aoSair, aoNovoEnv
           <Carregando />
         ) : material.status === 'pronto' ? (
           <>
+            {avisoDeFiguras(material) && <p role="status" className="sub aviso-figuras">{avisoDeFiguras(material)}</p>}
             <RevisaoTopicos materialId={id} nomeArquivo={material.nomeArquivo} aoAbrirTopico={aoAbrirTopico} />
             <ExcluirMaterial materialId={id} nome={nomeDoEstudo(material)} aoExcluir={aoIrInicio} />
           </>

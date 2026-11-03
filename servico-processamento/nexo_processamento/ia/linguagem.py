@@ -1,4 +1,5 @@
 """Interface de modelo de linguagem e seus adaptadores (falso e OpenAI), com tratamento de limite de requisições."""
+import base64
 import os
 import time
 from dataclasses import dataclass
@@ -38,7 +39,7 @@ class ModeloLinguagem(Protocol):
 
         Args:
             prompt: texto completo do pedido.
-            imagens: imagens para modelo com visão (ainda não suportado nos adaptadores reais).
+            imagens: imagens PNG para modelo com visão, enviadas junto com o texto.
 
         Returns:
             RespostaLinguagem com texto e tokens.
@@ -79,18 +80,18 @@ class ModeloLinguagemOpenAI:
 
         Args:
             prompt: texto do pedido.
-            imagens: não suportado ainda.
+            imagens: imagens PNG enviadas junto com o texto (o modelo precisa aceitar imagem; um que não aceite devolve erro do provedor).
 
         Returns:
             RespostaLinguagem com o texto e os tokens de entrada e saída.
 
         Raises:
             ErroProvedor: rede, status diferente de 200, resposta inesperada, cortada ou vazia.
-            NotImplementedError: se `imagens` for informado.
         """
-        if imagens:
-            raise NotImplementedError("descrição de figuras ainda não é suportada")
-        corpo = {"model": self.nome, "messages": [{"role": "user", "content": prompt}], "max_completion_tokens": self._max_tokens}
+        conteudo = prompt if not imagens else [{"type": "text", "text": prompt}] + [
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64," + base64.b64encode(i).decode()}} for i in imagens
+        ]
+        corpo = {"model": self.nome, "messages": [{"role": "user", "content": conteudo}], "max_completion_tokens": self._max_tokens}
         if self._temperatura is not None:
             corpo["temperature"] = self._temperatura
         for tentativa in (1, 2):
@@ -129,16 +130,18 @@ class ModeloLinguagemFalso:
 
         Args:
             prompt: texto do pedido.
-            imagens: ignorado.
+            imagens: com imagem, devolve uma descrição de demonstração (sem olhar a imagem).
 
         Returns:
             RespostaLinguagem com texto determinístico e tokens contados por palavras.
         """
+        if imagens:
+            return RespostaLinguagem(f"[Descrição de demonstração, sem modelo real] Figura do material com {len(imagens[0])} bytes.", len(prompt.split()) + 85, 14)
         marcador = "ATUAIS_JSON: "
         if marcador in prompt:
             linha = prompt.split(marcador, 1)[1].split("\n", 1)[0]
             return RespostaLinguagem(linha, len(prompt.split()), len(linha.split()))
-        if any(f"TAREFA: {t}" in prompt for t in ("QUESTOES", "VERIFICAR", "RESUMO", "DICA", "CHAT", "NOME")):
+        if any(f"TAREFA: {t}" in prompt for t in ("QUESTOES", "VERIFICAR", "EQUILIBRAR", "RESUMO", "DICA", "CHAT", "NOME")):
             texto = _falso_geracao(prompt)
             return RespostaLinguagem(texto, len(prompt.split()), len(texto.split()))
         return RespostaLinguagem(f"[falso] {prompt[:80]}", len(prompt.split()), 5)
@@ -172,6 +175,8 @@ def _falso_geracao(prompt: str) -> str:
     if "TAREFA: CHAT" in prompt:
         pergunta = re.search(r"PERGUNTA: (.*?)\n\n", prompt, re.S)
         return f"[Resposta de demonstração, sem modelo real] Sobre \"{(pergunta.group(1) if pergunta else '')[:80]}\": {eco}"
+    if "TAREFA: EQUILIBRAR" in prompt:
+        return "[]"  # a demonstração não reescreve alternativas: as questões seguem como vieram
     if "TAREFA: VERIFICAR" in prompt:
         return json.dumps({"sustentada": True, "unica_correta": True, "ordens": ordens[:1], "motivo": "falso"})
     n = int(re.search(r"QUANTIDADE: (\d+)", prompt).group(1))

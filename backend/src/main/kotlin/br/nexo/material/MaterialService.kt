@@ -14,8 +14,8 @@ import java.time.Duration
 import java.time.Instant
 import java.util.UUID
 
-/** `titulo`: nome dado ao estudo (nulo = vale o nome do arquivo); `assuntoId`: a pasta do primeiro tópico (nulo enquanto não há tópicos); `assuntoIds`: todas as pastas com tópicos do material. */
-data class MaterialDto(val id: UUID, val nomeArquivo: String, val status: String, val motivoFalha: String?, val paginas: Int?, val criadoEm: Instant, val gerando: Boolean = false, val titulo: String? = null, val assuntoId: UUID? = null, val assuntoIds: List<UUID> = emptyList())
+/** `titulo`: nome dado ao estudo (nulo = vale o nome do arquivo); `assuntoId`: a pasta do primeiro tópico (nulo enquanto não há tópicos); `assuntoIds`: todas as pastas com tópicos do material; `figurasAcimaDoLimite` e `figurasComFalha`: figuras que ficaram sem descrição (e fora dos trechos). */
+data class MaterialDto(val id: UUID, val nomeArquivo: String, val status: String, val motivoFalha: String?, val paginas: Int?, val criadoEm: Instant, val gerando: Boolean = false, val titulo: String? = null, val assuntoId: UUID? = null, val assuntoIds: List<UUID> = emptyList(), val figurasAcimaDoLimite: Int = 0, val figurasComFalha: Int = 0)
 /**
  * Andamento da indexação, para a barra de progresso.
  * @property status status do material.
@@ -150,7 +150,7 @@ class MaterialService(
      * @param m linha do material.
      * @return o DTO.
      */
-    private fun dto(m: MaterialLinha) = MaterialDto(m.id, m.nomeArquivo, m.status, m.motivoFalha, m.paginas, m.criadoEm, false, m.titulo, m.assuntoId, m.assuntoIds)
+    private fun dto(m: MaterialLinha) = MaterialDto(m.id, m.nomeArquivo, m.status, m.motivoFalha, m.paginas, m.criadoEm, false, m.titulo, m.assuntoId, m.assuntoIds, m.figurasAcimaDoLimite, m.figurasComFalha)
 
     /**
      * Barra de progresso: indexação vale 0 a 85 e a sugestão de tópicos 85 a 100. Detecta tarefa perdida (reinício) sem varrer outras contas.

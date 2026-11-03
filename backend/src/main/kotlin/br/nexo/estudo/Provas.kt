@@ -2,6 +2,8 @@ package br.nexo.estudo
 
 import br.nexo.NexoProperties
 import br.nexo.conta.ErroNegocio
+import br.nexo.material.LimitesIa
+import br.nexo.material.TopicoService
 import br.nexo.seguranca.UsuarioAtual
 import jakarta.validation.Valid
 import jakarta.validation.constraints.Min
@@ -37,12 +39,16 @@ data class ProvaAssuntoRequest(val assuntoId: UUID, val topicoLimiteId: UUID? = 
  * @property quantidade número de questões pedido.
  * @property separadas verdadeiro gera uma prova por assunto, cada uma com a quantidade total; falso mistura os assuntos numa só.
  * @property limiteMinutos limite de tempo opcional, em minutos.
+ * @property novas quantas das questões da prova devem ser geradas agora (de 0 até [quantidade]); as demais saem do banco de questões.
+ * @property orientacao orientação do estudante para as questões novas (banca, vestibular, foco); em branco usa a orientação gravada em cada tópico.
  */
 data class ProvaRequest(
     @field:NotEmpty(message = "Escolha ao menos um assunto.") val assuntos: List<@Valid ProvaAssuntoRequest> = emptyList(),
     @field:Min(1, message = "Informe a quantidade de questões.") val quantidade: Int = 0,
     val separadas: Boolean = false,
     val limiteMinutos: Int? = null,
+    @field:Min(0, message = "A quantidade de questões novas não pode ser negativa.") val novas: Int = 0,
+    val orientacao: String? = null,
 )
 /**
  * Assunto de uma prova, com o tópico-limite.
@@ -56,8 +62,13 @@ data class ProvaAssuntoDto(val id: UUID, val nome: String, val topicoLimiteId: U
  * Prova resumida (lista e cabeçalho do detalhe).
  * @property id prova.
  * @property grupoId identificador do pedido quando as provas foram separadas; nulo em prova única.
- * @property status gerada, em_andamento ou concluida.
- * @property quantidade questões da prova.
+ * @property status montando (questões novas sendo geradas), gerada, em_andamento, concluida ou falhou.
+ * @property quantidade questões da prova (zero enquanto monta).
+ * @property solicitadas questões pedidas; maior que [quantidade] quando faltaram questões.
+ * @property questoesNovas questões novas pedidas para a prova.
+ * @property questoesGeradas questões novas já geradas.
+ * @property orientacao orientação dada às questões novas, se houve.
+ * @property motivoFalha motivo, quando a montagem falhou.
  * @property respondidas questões já respondidas.
  * @property acertos respostas certas.
  * @property limiteMinutos limite de tempo, se houver.
@@ -70,6 +81,7 @@ data class ProvaAssuntoDto(val id: UUID, val nome: String, val topicoLimiteId: U
 data class ProvaResumoDto(
     val id: UUID, val grupoId: UUID?, val status: String, val quantidade: Int, val respondidas: Int, val acertos: Int, val limiteMinutos: Int?,
     val iniciadaEm: Instant?, val prazo: Instant?, val concluidaEm: Instant?, val criadaEm: Instant, val assuntos: List<ProvaAssuntoDto>,
+    val solicitadas: Int = quantidade, val questoesNovas: Int = 0, val questoesGeradas: Int = 0, val orientacao: String? = null, val motivoFalha: String? = null,
 )
 /**
  * Questão de uma prova. O gabarito só aparece depois que a questão é respondida.
@@ -105,6 +117,35 @@ data class ProvaDto(val prova: ProvaResumoDto, val agora: Instant, val questoes:
  */
 data class ProvasCriadasDto(val grupoId: UUID?, val provas: List<ProvaResumoDto>)
 
+/**
+ * Prova com questões novas a montar em segundo plano.
+ * @property usuarioId dono da prova.
+ * @property provaId prova (já gravada com status montando).
+ * @property quantidade questões pedidas para a prova.
+ * @property orientacao orientação para as questões novas; nulo usa a de cada tópico.
+ * @property planos quantas questões novas gerar em cada tópico.
+ * @property escopos assuntos (com a posição do tópico-limite) de onde o banco completa a prova.
+ */
+data class TarefaMontagem(val usuarioId: UUID, val provaId: UUID, val quantidade: Int, val orientacao: String?, val planos: List<PlanoTopico>, val escopos: List<EscopoMontagem>)
+/**
+ * Questões novas a gerar em um tópico.
+ * @property topicoId tópico.
+ * @property quantidade questões.
+ */
+data class PlanoTopico(val topicoId: UUID, val quantidade: Int)
+/**
+ * Assunto de uma prova em montagem.
+ * @property assuntoId assunto.
+ * @property ordemLimite posição do tópico-limite; nula = todos os tópicos.
+ */
+data class EscopoMontagem(val assuntoId: UUID, val ordemLimite: Int?)
+/**
+ * Resultado do pedido de prova: o que responder à tela e o que montar em segundo plano.
+ * @property criadas provas criadas.
+ * @property tarefas provas com questões novas, ainda por montar (vazio quando todas as questões vieram do banco).
+ */
+data class Criacao(val criadas: ProvasCriadasDto, val tarefas: List<TarefaMontagem>)
+
 /** Divisão da quantidade pedida entre os assuntos de uma prova. */
 object CotaProva {
     /**
@@ -137,6 +178,8 @@ class Provas(
     private val props: NexoProperties,
     private val relogio: Clock,
     private val json: JsonMapper,
+    private val limites: LimitesIa,
+    private val ativas: ProvasAtivas,
 ) {
     /**
      * Usuário autenticado.
@@ -189,11 +232,22 @@ class Provas(
      * Sorteia questões elegíveis de um assunto.
      * @param e escopo do assunto.
      * @param quantidade quantas sortear.
+     * @param excluir questões que não podem sair (as novas, já escolhidas).
      * @return ids das questões sorteadas.
      */
-    private fun sortear(e: Escopo, quantidade: Int): List<UUID> = jdbc.query(
-        "SELECT q.id FROM questao q JOIN topico t ON t.id = q.topico_id WHERE t.assunto_id = ? AND (?::int IS NULL OR t.ordem <= ?) ORDER BY random() LIMIT ?",
-        { rs, _ -> rs.getObject(1, UUID::class.java) }, e.pedido.assuntoId, e.ordemLimite, e.ordemLimite, quantidade,
+    private fun sortear(e: Escopo, quantidade: Int, excluir: Collection<UUID> = emptyList()): List<UUID> = sortearDe(e.pedido.assuntoId, e.ordemLimite, quantidade, excluir)
+
+    /**
+     * Sorteia questões de um assunto até a posição do tópico-limite.
+     * @param assuntoId assunto.
+     * @param ordemLimite posição do tópico-limite; nula = todos os tópicos.
+     * @param quantidade quantas sortear.
+     * @param excluir questões que não podem sair.
+     * @return ids das questões sorteadas.
+     */
+    private fun sortearDe(assuntoId: UUID, ordemLimite: Int?, quantidade: Int, excluir: Collection<UUID>): List<UUID> = jdbc.query(
+        "SELECT q.id FROM questao q JOIN topico t ON t.id = q.topico_id WHERE t.assunto_id = ? AND (?::int IS NULL OR t.ordem <= ?) AND NOT (q.id = ANY (?::uuid[])) ORDER BY random() LIMIT ?",
+        { rs, _ -> rs.getObject(1, UUID::class.java) }, assuntoId, ordemLimite, ordemLimite, excluir.map { it.toString() }.toTypedArray(), quantidade,
     )
 
     /**
@@ -215,38 +269,178 @@ class Provas(
     }
 
     /**
-     * Monta a(s) prova(s) do pedido: valida, divide a quantidade entre os assuntos, sorteia as questões e grava, numa transação.
+     * Monta a(s) prova(s) do pedido: valida, divide a quantidade entre os assuntos, sorteia as questões do banco e grava, numa transação.
+     * Com questões novas (`novas` maior que zero), a prova é gravada com status `montando` e devolvida em [Criacao.tarefas] para ser montada em segundo plano.
      * @param r pedido.
-     * @return as provas criadas e o grupo (quando separadas em mais de uma).
-     * @throws ErroNegocio 400 se o pedido for inválido; 404 se um assunto não existir; 409 `questoes_insuficientes` se faltarem questões.
+     * @return as provas criadas e, se houver questões novas, o que montar depois.
+     * @throws ErroNegocio 400 se o pedido for inválido; 404 se um assunto não existir; 409 `questoes_insuficientes` se faltarem questões no banco, ou `limite_questoes_topico` se os tópicos não comportarem as novas; 429 se a cota de IA não cobrir as novas.
      */
-    fun criar(r: ProvaRequest): ProvasCriadasDto {
+    fun criar(r: ProvaRequest): Criacao {
         val max = props.prova
         if (r.quantidade > max.quantidadeMaxima) throw ErroNegocio(HttpStatus.BAD_REQUEST, "Uma prova pode ter até ${max.quantidadeMaxima} questões.", "dados_invalidos")
+        if (r.novas > r.quantidade) throw ErroNegocio(HttpStatus.BAD_REQUEST, "As questões novas não podem passar do total da prova.", "dados_invalidos")
         if (r.assuntos.size > max.assuntosMaximos) throw ErroNegocio(HttpStatus.BAD_REQUEST, "Escolha até ${max.assuntosMaximos} assuntos.", "dados_invalidos")
         if (r.assuntos.map { it.assuntoId }.toSet().size != r.assuntos.size) throw ErroNegocio(HttpStatus.BAD_REQUEST, "O mesmo assunto foi escolhido duas vezes.", "dados_invalidos")
         if (r.limiteMinutos != null && r.limiteMinutos !in 1..max.limiteMinutosMaximo) throw ErroNegocio(HttpStatus.BAD_REQUEST, "O limite de tempo vai de 1 a ${max.limiteMinutosMaximo} minutos.", "dados_invalidos")
+        val orientacao = TopicoService.limparOrientacao(r.orientacao)
+        val tarefas = mutableListOf<TarefaMontagem>()
         val ids = tx.execute {
             val escopos = r.assuntos.map(::escopo)
+            val doBanco = r.quantidade - r.novas
             val insuficiente = { disponiveis: Int, onde: String ->
                 ErroNegocio(
-                    HttpStatus.CONFLICT, "Há só $disponiveis questões $onde e você pediu ${r.quantidade}. Reduza a quantidade ou gere mais questões.", "questoes_insuficientes",
-                    mapOf("disponiveis" to disponiveis, "pedidas" to r.quantidade),
+                    HttpStatus.CONFLICT, "Há só $disponiveis questões $onde e você pediu $doBanco. Reduza a quantidade, peça mais questões novas ou gere mais questões.", "questoes_insuficientes",
+                    mapOf("disponiveis" to disponiveis, "pedidas" to doBanco),
                 )
             }
-            if (r.separadas) {
-                escopos.firstOrNull { it.disponiveis < r.quantidade }?.let { throw insuficiente(it.disponiveis, "no assunto \"${it.nome}\"") }
-                val grupo = if (escopos.size > 1) UUID.randomUUID() else null
-                grupo to escopos.map { gravar(listOf(it), sortear(it, r.quantidade), r.quantidade, grupo, r.limiteMinutos) }
-            } else {
-                val total = escopos.sumOf { it.disponiveis }
-                if (total < r.quantidade) throw insuficiente(total, "nos assuntos escolhidos")
-                val cotas = CotaProva.dividir(r.quantidade, escopos.map { it.disponiveis })
-                val questoes = escopos.indices.flatMap { sortear(escopos[it], cotas[it]) }
-                null to listOf(gravar(escopos, questoes, r.quantidade, null, r.limiteMinutos))
+            val provas = if (r.separadas) escopos.map { listOf(it) } else listOf(escopos)
+            val grupo = if (r.separadas && escopos.size > 1) UUID.randomUUID() else null
+            if (r.separadas) escopos.firstOrNull { it.disponiveis < doBanco }?.let { throw insuficiente(it.disponiveis, "no assunto \"${it.nome}\"") }
+            else if (escopos.sumOf { it.disponiveis } < doBanco) throw insuficiente(escopos.sumOf { it.disponiveis }, "nos assuntos escolhidos")
+            if (r.novas > 0) limites.exigirCreditos(r.novas * max.creditosPorQuestaoNova * provas.size)
+            val criadas = provas.map { grupoEscopos ->
+                if (r.novas == 0) {
+                    val cotas = CotaProva.dividir(r.quantidade, grupoEscopos.map { it.disponiveis })
+                    gravar(grupoEscopos, grupoEscopos.indices.flatMap { sortear(grupoEscopos[it], cotas[it]) }, r.quantidade, grupo, r.limiteMinutos)
+                } else {
+                    val planos = planejarNovas(grupoEscopos, r.novas)
+                    val id = gravarMontando(grupoEscopos, r.quantidade, grupo, r.limiteMinutos, orientacao, r.novas)
+                    tarefas += TarefaMontagem(uid(), id, r.quantidade, orientacao, planos, grupoEscopos.map { EscopoMontagem(it.pedido.assuntoId, it.ordemLimite) })
+                    id
+                }
+            }
+            grupo to criadas
+        }!!
+        return Criacao(ProvasCriadasDto(ids.first, tx.execute { ids.second.map { resumo(it) } }!!), tarefas)
+    }
+
+    /**
+     * Reparte as questões novas entre os tópicos dos assuntos de uma prova, preferindo os tópicos com menos questões e respeitando o teto de questões por tópico.
+     * @param escopos assuntos da prova (com a posição do tópico-limite).
+     * @param novas quantas questões novas gerar no total.
+     * @return quantas gerar em cada tópico (só os tópicos que recebem alguma).
+     * @throws ErroNegocio 409 `limite_questoes_topico` se os tópicos escolhidos não comportarem tantas questões novas.
+     */
+    private fun planejarNovas(escopos: List<Escopo>, novas: Int): List<PlanoTopico> {
+        val teto = props.geracao.questoesPorTopico
+        /** Um tópico do escopo: quantas questões já tem e quantas ainda cabem. */
+        data class Vaga(val topico: UUID, val ocupadas: Int, val livres: Int)
+        val porAssunto = escopos.map { e ->
+            jdbc.query(
+                "SELECT t.id, (SELECT count(*) FROM questao q WHERE q.topico_id = t.id) FROM topico t WHERE t.assunto_id = ? AND (?::int IS NULL OR t.ordem <= ?) ORDER BY t.ordem",
+                { rs, _ -> rs.getObject(1, UUID::class.java) to rs.getInt(2) }, e.pedido.assuntoId, e.ordemLimite, e.ordemLimite,
+            ).map { (id, n) -> Vaga(id, n, (teto - n).coerceAtLeast(0)) }
+        }
+        val cotas = CotaProva.dividir(novas, porAssunto.map { v -> v.sumOf { it.livres } })
+        val total = cotas.sum()
+        if (total < novas) throw ErroNegocio(
+            HttpStatus.CONFLICT, "Os tópicos escolhidos aceitam só mais $total questões novas (o limite é de $teto por tópico). Peça menos questões novas.", "limite_questoes_topico",
+            mapOf("disponiveis" to total, "pedidas" to novas),
+        )
+        val planos = linkedMapOf<UUID, Int>()
+        porAssunto.forEachIndexed { i, vagas ->
+            val ocupadas = vagas.associate { it.topico to it.ocupadas }.toMutableMap()
+            val livres = vagas.associate { it.topico to it.livres }.toMutableMap()
+            repeat(cotas[i]) {
+                val escolhido = vagas.filter { livres.getValue(it.topico) > 0 }.minByOrNull { ocupadas.getValue(it.topico) }!!.topico
+                planos.merge(escolhido, 1, Int::plus); ocupadas[escolhido] = ocupadas.getValue(escolhido) + 1; livres[escolhido] = livres.getValue(escolhido) - 1
             }
         }
-        return ProvasCriadasDto(ids.first, tx.execute { ids.second.map { resumo(it) } })
+        return planos.map { PlanoTopico(it.key, it.value) }
+    }
+
+    /**
+     * Grava o cabeçalho de uma prova que ainda vai receber questões novas (status `montando`, sem questões).
+     * @param assuntos escopos da prova.
+     * @param quantidade questões pedidas.
+     * @param grupo grupo das provas separadas, ou nulo.
+     * @param limite limite de tempo em minutos, ou nulo.
+     * @param orientacao orientação para as questões novas, ou nulo.
+     * @param novas questões novas pedidas.
+     * @return o id da prova.
+     */
+    private fun gravarMontando(assuntos: List<Escopo>, quantidade: Int, grupo: UUID?, limite: Int?, orientacao: String?, novas: Int): UUID {
+        val id = UUID.randomUUID()
+        val u = uid()
+        jdbc.update(
+            "INSERT INTO prova(id,usuario_id,quantidade_solicitada,status,grupo_id,limite_minutos,orientacao,questoes_novas) VALUES (?,?,?,'montando',?,?,?,?)",
+            id, u, quantidade, grupo, limite, orientacao, novas,
+        )
+        assuntos.forEach { jdbc.update("INSERT INTO prova_assunto(prova_id,assunto_id,usuario_id,topico_limite_id) VALUES (?,?,?,?)", id, it.pedido.assuntoId, u, it.pedido.topicoLimiteId) }
+        return id
+    }
+
+    /**
+     * Diz se a prova ainda existe (a montagem para quando o estudante a exclui).
+     * @param provaId prova.
+     * @return verdadeiro se existe.
+     */
+    fun existe(provaId: UUID): Boolean = tx.execute { jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM prova WHERE id = ?)", Boolean::class.java, provaId) }!!
+
+    /**
+     * Diz se a prova ainda está sendo montada (existe e não foi concluída nem marcada como falha).
+     * @param provaId prova.
+     * @return verdadeiro se o status é `montando`.
+     */
+    fun montando(provaId: UUID): Boolean = tx.execute { jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM prova WHERE id = ? AND status = 'montando')", Boolean::class.java, provaId) }!!
+
+    /**
+     * Anota quantas questões novas já foram geradas e marca o pulso da montagem (o `atualizado_em` muda a cada gravação).
+     * @param provaId prova.
+     * @param geradas questões novas geradas até agora.
+     */
+    fun registrarGeradas(provaId: UUID, geradas: Int) {
+        tx.executeWithoutResult { jdbc.update("UPDATE prova SET questoes_geradas = LEAST(?, questoes_novas) WHERE id = ? AND status = 'montando'", geradas, provaId) }
+    }
+
+    /**
+     * Fecha a montagem: completa com questões do banco o que as novas não cobriram e grava a prova; sem nenhuma questão, ela falha.
+     * Se faltarem questões, a prova sai com as que há (a tela mostra quantas foram pedidas e quantas entraram).
+     * @param t prova em montagem.
+     * @param novas questões novas efetivamente geradas.
+     * @param motivo código do motivo, usado se a prova ficar sem questão nenhuma.
+     */
+    fun fecharMontagem(t: TarefaMontagem, novas: List<UUID>, motivo: String) {
+        tx.executeWithoutResult {
+            // prova excluída (cancelamento) ou já encerrada: nada a fechar
+            if (jdbc.query("SELECT status FROM prova WHERE id = ? FOR UPDATE", { rs, _ -> rs.getString(1) }, t.provaId).firstOrNull() != "montando") return@executeWithoutResult
+            val escolhidas = novas.take(t.quantidade)
+            val faltam = t.quantidade - escolhidas.size
+            val disponiveis = t.escopos.map { e ->
+                jdbc.queryForObject(
+                    "SELECT count(*) FROM questao q JOIN topico tp ON tp.id = q.topico_id WHERE tp.assunto_id = ? AND (?::int IS NULL OR tp.ordem <= ?) AND NOT (q.id = ANY (?::uuid[]))",
+                    Int::class.java, e.assuntoId, e.ordemLimite, e.ordemLimite, escolhidas.map { it.toString() }.toTypedArray(),
+                )!!
+            }
+            val cotas = CotaProva.dividir(faltam, disponiveis)
+            val doBanco = t.escopos.indices.flatMap { sortearDe(t.escopos[it].assuntoId, t.escopos[it].ordemLimite, cotas[it], escolhidas) }
+            val todas = escolhidas + doBanco
+            if (todas.isEmpty()) {
+                jdbc.update("UPDATE prova SET status = 'falhou', motivo_falha = ? WHERE id = ?", motivo, t.provaId)
+            } else {
+                todas.shuffled().forEachIndexed { i, q -> jdbc.update("INSERT INTO prova_questao(prova_id,questao_id,usuario_id,ordem) VALUES (?,?,?,?)", t.provaId, q, t.usuarioId, i + 1) }
+                jdbc.update("UPDATE prova SET status = 'gerada', questoes_geradas = LEAST(?, questoes_novas) WHERE id = ?", escolhidas.size, t.provaId)
+            }
+        }
+    }
+
+    /**
+     * Marca uma prova em montagem como falha.
+     * @param provaId prova.
+     * @param motivo código do motivo.
+     */
+    fun falharMontagem(provaId: UUID, motivo: String) {
+        tx.executeWithoutResult { jdbc.update("UPDATE prova SET status = 'falhou', motivo_falha = ? WHERE id = ? AND status = 'montando'", motivo, provaId) }
+    }
+
+    /**
+     * Marca como falhas as provas que ficaram em `montando` sem sinal de vida e que este servidor não está montando nem tem na fila (reinício no meio da montagem).
+     */
+    private fun recuperarAbandonadas() {
+        jdbc.update(
+            "UPDATE prova SET status = 'falhou', motivo_falha = 'interrompida' WHERE status = 'montando' AND atualizado_em < ? AND NOT (id = ANY (?::uuid[]))",
+            Timestamp.from(agora().minus(props.geracao.pulsoMaximo)), ativas.todas().map { it.toString() }.toTypedArray(),
+        )
     }
 
     /**
@@ -285,7 +479,7 @@ class Provas(
             { rs, _ -> rs.getObject(1, UUID::class.java) to ProvaAssuntoDto(rs.getObject(2, UUID::class.java), rs.getString(3), rs.getObject(4, UUID::class.java), rs.getString(5)) }, *args,
         ).groupBy({ it.first }, { it.second })
         return jdbc.query(
-            """SELECT p.id, p.grupo_id, p.status, p.limite_minutos, p.iniciada_em, p.concluida_em, p.criado_em,
+            """SELECT p.id, p.grupo_id, p.status, p.limite_minutos, p.iniciada_em, p.concluida_em, p.criado_em, p.quantidade_solicitada, p.questoes_novas, p.questoes_geradas, p.orientacao, p.motivo_falha,
                       (SELECT count(*) FROM prova_questao pq WHERE pq.prova_id = p.id) AS total,
                       (SELECT count(DISTINCT r.questao_id) FROM resposta r WHERE r.prova_id = p.id) AS respondidas,
                       (SELECT count(DISTINCT r.questao_id) FROM resposta r WHERE r.prova_id = p.id AND r.correta) AS acertos
@@ -308,6 +502,7 @@ class Provas(
             id, rs.getObject("grupo_id", UUID::class.java), rs.getString("status"), rs.getInt("total"), rs.getInt("respondidas"), rs.getInt("acertos"), limite,
             inicio, if (limite != null && inicio != null) inicio.plus(Duration.ofMinutes(limite.toLong())) else null,
             rs.getTimestamp("concluida_em")?.toInstant(), rs.getTimestamp("criado_em").toInstant(), assuntos[id].orEmpty(),
+            rs.getInt("quantidade_solicitada"), rs.getInt("questoes_novas"), rs.getInt("questoes_geradas"), rs.getString("orientacao"), rs.getString("motivo_falha"),
         )
     }
 
@@ -315,7 +510,7 @@ class Provas(
      * Lista as provas do usuário (provas do mesmo pedido têm o mesmo `grupoId`), concluindo as que passaram do tempo.
      * @return as [LIMITE_LISTA] provas mais recentes, da mais nova à mais antiga.
      */
-    fun listar(): List<ProvaResumoDto> = tx.execute { encerrarVencidas(agora()); listarResumos("", LIMITE_LISTA) }!!
+    fun listar(): List<ProvaResumoDto> = tx.execute { encerrarVencidas(agora()); recuperarAbandonadas(); listarResumos("", LIMITE_LISTA) }!!
 
     /**
      * Prova com as questões. O gabarito de uma questão só vem depois de respondida.
@@ -323,7 +518,7 @@ class Provas(
      * @return a prova completa.
      * @throws ErroNegocio 404 se a prova não for do usuário.
      */
-    fun detalhe(id: UUID): ProvaDto = tx.execute { encerrarVencidas(agora()); montar(id) }!!
+    fun detalhe(id: UUID): ProvaDto = tx.execute { encerrarVencidas(agora()); recuperarAbandonadas(); montar(id) }!!
 
     /**
      * Monta o detalhe sem encerrar vencidas (o chamador já fez isso).
@@ -358,6 +553,7 @@ class Provas(
     fun iniciar(id: UUID): ProvaDto = tx.execute {
         encerrarVencidas(agora())
         val status = jdbc.query("SELECT status FROM prova WHERE id = ? FOR UPDATE", { rs, _ -> rs.getString(1) }, id).firstOrNull() ?: throw naoEncontrada()
+        if (status == "montando" || status == "falhou") throw ErroNegocio(HttpStatus.CONFLICT, "Esta prova ainda não está pronta.", "prova_nao_pronta")
         if (status == "gerada") jdbc.update("UPDATE prova SET status = 'em_andamento', iniciada_em = ? WHERE id = ?", Timestamp.from(agora()), id)
         montar(id)
     }!!
@@ -372,6 +568,7 @@ class Provas(
         encerrarVencidas(agora())
         val status = jdbc.query("SELECT status FROM prova WHERE id = ? FOR UPDATE", { rs, _ -> rs.getString(1) }, provaId).firstOrNull() ?: throw naoEncontrada()
         if (status == "concluida") throw ErroNegocio(HttpStatus.CONFLICT, "Esta prova já terminou.", "prova_encerrada")
+        if (status == "montando" || status == "falhou") throw ErroNegocio(HttpStatus.CONFLICT, "Esta prova ainda não está pronta.", "prova_nao_pronta")
         if (jdbc.queryForObject("SELECT count(*) FROM prova_questao WHERE prova_id = ? AND questao_id = ?", Int::class.java, provaId, questaoId) == 0)
             throw ErroNegocio(HttpStatus.NOT_FOUND, "Esta questão não faz parte da prova.", "nao_encontrado")
         if (jdbc.queryForObject("SELECT count(*) FROM resposta WHERE prova_id = ? AND questao_id = ?", Int::class.java, provaId, questaoId)!! > 0)
@@ -427,14 +624,18 @@ class Provas(
 
 /** Rotas das provas por escopo. */
 @RestController
-class ProvasController(private val provas: Provas) {
+class ProvasController(private val provas: Provas, private val montagem: MontagemProvas) {
     /**
      * Monta uma ou mais provas.
-     * @param r pedido (assuntos, tópicos-limite, quantidade, única ou separadas, limite de tempo).
-     * @return 201 com as provas criadas.
+     * @param r pedido (assuntos, tópicos-limite, quantidade, questões novas, orientação, única ou separadas, limite de tempo).
+     * @return 201 com as provas criadas; as que têm questões novas voltam em `montando` e são montadas em segundo plano.
      */
     @PostMapping("/provas")
-    fun criar(@Valid @RequestBody r: ProvaRequest) = ResponseEntity.status(HttpStatus.CREATED).body(provas.criar(r))
+    fun criar(@Valid @RequestBody r: ProvaRequest): ResponseEntity<ProvasCriadasDto> {
+        val c = provas.criar(r)
+        montagem.submeter(c.tarefas)
+        return ResponseEntity.status(HttpStatus.CREATED).body(c.criadas)
+    }
 
     /**
      * Lista as provas do usuário.

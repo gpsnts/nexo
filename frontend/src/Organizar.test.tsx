@@ -234,3 +234,18 @@ test('a pasta escolhida mostra quantos tópicos e materiais tem', async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'História' }))
   expect(await screen.findByText('3 tópicos de 1 material nesta pasta.')).toBeTruthy()
 })
+
+test('material com figuras ignoradas mostra o aviso; sem figuras ignoradas não mostra', async () => {
+  ir(`/materiais/${MAT}`)
+  servidor({ ...paraMaterial, [`GET /materiais/${MAT}`]: [200, { ...material, figurasAcimaDoLimite: 2, figurasComFalha: 1 }] })
+  const { unmount } = render(<App />)
+  const aviso = await screen.findByText(/figuras ficaram de fora/)
+  expect(aviso.textContent).toContain('3 figuras ficaram de fora')
+  expect(aviso.textContent).toContain('2 passaram do limite')
+  expect(aviso.textContent).toContain('1 não pôde ser lida ou descrita')
+  unmount()
+  servidor({ ...paraMaterial, [`GET /materiais/${MAT}`]: [200, { ...material, figurasAcimaDoLimite: 0, figurasComFalha: 0 }] })
+  render(<App />)
+  await screen.findByRole('button', { name: 'Excluir o material bio.pdf' })
+  expect(screen.queryByText(/de fora do conteúdo/)).toBeNull()
+})

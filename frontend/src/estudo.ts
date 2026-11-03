@@ -2,7 +2,7 @@
 /** Pasta (assunto) do usuário. */
 export type Assunto = { id: string; nome: string; padrao: boolean; topicos?: number; materiais?: number }
 /** Material enviado, como a API devolve. `titulo` é o nome dado ao estudo; `assuntoId` é a pasta do primeiro tópico (nulo até haver tópicos) e `assuntoIds` todas as pastas onde ele tem tópicos; `gerando` marca geração em curso. */
-export type Material = { id: string; nomeArquivo: string; status: 'pendente' | 'processando' | 'pronto' | 'falhou'; motivoFalha: string | null; paginas: number | null; criadoEm: string; gerando?: boolean; titulo?: string | null; assuntoId?: string | null; assuntoIds?: string[] }
+export type Material = { id: string; nomeArquivo: string; status: 'pendente' | 'processando' | 'pronto' | 'falhou'; motivoFalha: string | null; paginas: number | null; criadoEm: string; gerando?: boolean; titulo?: string | null; assuntoId?: string | null; assuntoIds?: string[]; figurasAcimaDoLimite?: number; figurasComFalha?: number }
 /** Andamento da indexação: status, etapa corrente e percentual (0 a 100). */
 export type Andamento = { status: Material['status']; etapa: string; percentual: number; motivoFalha: string | null }
 /** Tópico de um material, com a faixa de trechos, a prévia e se está congelado (`temConteudo`). */
@@ -10,7 +10,7 @@ export type Topico = { id: string; assuntoId: string; nome: string; ordem: numbe
 /** Rascunho de divisão proposto pela IA ("Reorganizar com IA"); só vale depois de confirmado. */
 export type Rascunho = { topicos: { id: string | null; nome: string; inicio: number; fim: number; temConteudo: boolean }[]; mudou: boolean; modelo: string; tokensEntrada: number; tokensSaida: number }
 /** Cota semanal de IA: a tela mostra a porcentagem e quando renova; `operacoes` é só a proteção por hora, que não aparece. */
-export type Uso = { creditosUsados: number; creditosLimite: number; percentual: number; renovaEm: string; operacoes: number; limiteOperacoes: number; janelaOperacoesMinutos: number }
+export type Uso = { creditosUsados: number; creditosLimite: number; percentual: number; renovaEm: string; operacoes: number; limiteOperacoes: number; janelaOperacoesMinutos: number; creditosPorQuestaoNova?: number }
 /** Estado de uma geração de resumo ou questões, consultado por polling. */
 export type Geracao = {
   id: string; operacao: 'resumo' | 'questoes' | 'verificacao_questao'; status: 'pendente' | 'em_andamento' | 'concluida' | 'falhou'; progresso: number
@@ -68,10 +68,11 @@ export function rotuloApoio(apoio: Apoio[]): string {
 }
 /** Assunto de uma prova, com o tópico-limite escolhido (se houver). */
 export type ProvaAssunto = { id: string; nome: string; topicoLimiteId: string | null; topicoLimite: string | null }
-/** Prova resumida: andamento, limite de tempo (`prazo` só existe depois de iniciada) e assuntos. Provas do mesmo pedido têm o mesmo `grupoId`. */
+/** Prova resumida: andamento (enquanto `montando`, `questoesGeradas` de `questoesNovas` já foram geradas; `solicitadas` maior que `quantidade` = faltaram questões), limite de tempo (`prazo` só existe depois de iniciada) e assuntos. Provas do mesmo pedido têm o mesmo `grupoId`. */
 export type ProvaResumo = {
-  id: string; grupoId: string | null; status: 'gerada' | 'em_andamento' | 'concluida'; quantidade: number; respondidas: number; acertos: number; limiteMinutos: number | null
+  id: string; grupoId: string | null; status: 'montando' | 'gerada' | 'em_andamento' | 'concluida' | 'falhou'; quantidade: number; respondidas: number; acertos: number; limiteMinutos: number | null
   iniciadaEm: string | null; prazo: string | null; concluidaEm: string | null; criadaEm: string; assuntos: ProvaAssunto[]
+  solicitadas?: number; questoesNovas?: number; questoesGeradas?: number; orientacao?: string | null; motivoFalha?: string | null
 }
 /** Questão de uma prova; o gabarito só vem depois de respondida. */
 export type ProvaQuestao = {
@@ -101,7 +102,7 @@ export const TAMANHO_MAXIMO_MB = 20
 /** Avisos de privacidade (LGPD): o texto sai do sistema e vai a um provedor de IA externo; o aviso aparece onde isso acontece. */
 export const AVISO_IA = {
   cadastro: 'Ao usar o Nexo, o conteúdo que você enviar é processado por um serviço externo de inteligência artificial para gerar resumos, questões e divisões em tópicos. Envie apenas material que você pode compartilhar.',
-  material: 'O texto do material é enviado a um serviço externo de inteligência artificial para gerar resumos, questões e a divisão em tópicos. Envie apenas material que você pode compartilhar.',
+  material: 'O texto do material e as imagens das figuras (para serem descritas) são enviados a um serviço externo de inteligência artificial para gerar resumos, questões e a divisão em tópicos. Envie apenas material que você pode compartilhar.',
   topicoLivre: 'O nome do tópico é enviado a um serviço externo de inteligência artificial para gerar o conteúdo.',
   reorganizar: 'O início de cada trecho é enviado a um serviço externo de inteligência artificial.',
   topico: 'Os trechos usados são enviados a um serviço externo de inteligência artificial para gerar o conteúdo.',
@@ -109,6 +110,22 @@ export const AVISO_IA = {
   chat: 'Suas perguntas e os trechos do tópico são enviados a um serviço externo de inteligência artificial. A conversa fica salva neste tópico até você limpá-la.',
   dica: 'A questão e os trechos que a sustentam são enviados a um serviço externo de inteligência artificial para gerar a dica.',
   topicoLivreGeracao: 'O nome do tópico é enviado a um serviço externo de inteligência artificial.',
+}
+/**
+ * Texto do aviso sobre figuras do material que ficaram fora do conteúdo (passaram do limite ou o modelo não conseguiu descrever).
+ * @param m material com as contagens de figuras ignoradas.
+ * @returns a mensagem, ou nulo se nenhuma figura ficou de fora.
+ */
+export function avisoDeFiguras(m: Pick<Material, 'figurasAcimaDoLimite' | 'figurasComFalha'>): string | null {
+  const acima = m.figurasAcimaDoLimite ?? 0
+  const falha = m.figurasComFalha ?? 0
+  if (acima + falha === 0) return null
+  const partes = [
+    acima > 0 ? `${acima} ${acima === 1 ? 'passou' : 'passaram'} do limite de figuras por material` : '',
+    falha > 0 ? `${falha} não ${falha === 1 ? 'pôde' : 'puderam'} ser lida${falha === 1 ? '' : 's'} ou descrita${falha === 1 ? '' : 's'}` : '',
+  ].filter(Boolean)
+  const total = acima + falha
+  return `${total} ${total === 1 ? 'figura ficou' : 'figuras ficaram'} de fora do conteúdo (${partes.join('; ')}). O texto e as tabelas foram usados normalmente.`
 }
 export const FORMATOS = ['pdf', 'docx', 'txt']
 export const NOME_MAXIMO = 200

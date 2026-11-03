@@ -5,6 +5,9 @@ export default defineConfig({
   testDir: './testes',
   timeout: 60_000,
   expect: { timeout: 15_000 },
+  // Testes que usam IA (indexação, geração, tutor, figuras, prova com questões novas) ficam marcados com @ia e NÃO rodam por padrão:
+  // só com NEXO_E2E_IA=1, e só quando o usuário pedir (decisão do usuário: nenhum e2e com IA no dia a dia).
+  grepInvert: process.env.NEXO_E2E_IA === '1' ? undefined : /@ia/,
   fullyParallel: false, // o limite por IP das rotas públicas (20 por minuto) e o estado do compose pedem execução em série
   workers: 1,
   retries: process.env.CI ? 1 : 0,

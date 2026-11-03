@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { api, definirToken, ErroApi, type Sessao } from './api'
+import { api, baixar, definirToken, ErroApi, type Sessao } from './api'
 import { useDevolverFoco } from './foco'
 import Campo, { CampoUsuario } from './Campo'
 import { erroEmail, erroNome, erroObrigatorio, erroSenhaNova, focarPrimeiroInvalido, temErro, type Erros } from './validacao'
@@ -9,11 +9,11 @@ type Dados = { nome: string; email: string }
 
 /**
  * Uma seção do perfil: formulário próprio, validação por campo, mensagem de erro ou sucesso e botão travado durante o envio.
- * @param props id: âncora; titulo: título; aoEnviar: chamada ao backend (devolve a mensagem de sucesso); validar: valida antes de enviar; rotuloBotao: texto do botão; perigo: estilo de ação destrutiva; desabilitado: trava o botão; children: campos.
+ * @param props id: âncora; titulo: título; aoEnviar: chamada ao backend (devolve a mensagem de sucesso); validar: valida antes de enviar; rotuloBotao: texto do botão; perigo: estilo de ação destrutiva; larga: ocupa a linha inteira da grade; desabilitado: trava o botão; children: campos.
  * @returns a seção.
  */
-function Secao({ id, titulo, aoEnviar, validar, rotuloBotao, perigo, desabilitado, children }: {
-  id: string; titulo: string; aoEnviar: () => Promise<string | void>; validar?: () => boolean; rotuloBotao: string; perigo?: boolean; desabilitado?: boolean; children: React.ReactNode
+function Secao({ id, titulo, aoEnviar, validar, rotuloBotao, perigo, larga, desabilitado, children }: {
+  id: string; titulo: string; aoEnviar: () => Promise<string | void>; validar?: () => boolean; rotuloBotao: string; perigo?: boolean; larga?: boolean; desabilitado?: boolean; children: React.ReactNode
 }) {
   const [erro, setErro] = useState('')
   const [ok, setOk] = useState('')
@@ -38,7 +38,7 @@ function Secao({ id, titulo, aoEnviar, validar, rotuloBotao, perigo, desabilitad
     }
   }
   return (
-    <section id={id} className={perigo ? 'secao larga perigo' : 'secao'}>
+    <section id={id} className={perigo ? 'secao larga perigo' : larga ? 'secao larga' : 'secao'}>
       <h2>{titulo}</h2>
       <form onSubmit={enviar} noValidate>
         {children}
@@ -131,6 +131,43 @@ export function ExcluirConta({ email, aoExcluir }: { email: string; aoExcluir: (
       <CampoUsuario email={email} />
       <Campo rotulo="Senha atual" valor={senha} mudar={setSenha} tipo="password" auto="current-password" />
       <Campo rotulo="Digite EXCLUIR para confirmar" valor={confirmacao} mudar={setConfirmacao} />
+    </Secao>
+  )
+}
+
+/**
+ * Seção de exportação: o estudante escolhe o conteúdo (desempenho ou questões) e o formato (CSV ou JSON) e baixa o arquivo com os próprios dados.
+ * @returns a seção.
+ */
+export function ExportarDados() {
+  const [conteudo, setConteudo] = useState<'desempenho' | 'questoes'>('desempenho')
+  const [formato, setFormato] = useState<'csv' | 'json'>('csv')
+  return (
+    <Secao id="secao-exportar" titulo="Exportar meus dados" rotuloBotao="Baixar arquivo" larga
+      aoEnviar={async () => {
+        const arquivo = await baixar(`/exportacao?conteudo=${conteudo}&formato=${formato}`)
+        const url = URL.createObjectURL(arquivo)
+        const a = document.createElement('a')
+        a.href = url; a.download = `nexo-${conteudo}.${formato}`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(url), 1000)  // revogar na hora cancela o download em alguns navegadores
+        return 'Arquivo baixado.'
+      }}>
+      <p className="sub">Leve seu histórico e suas questões para fora da plataforma, em formato aberto.</p>
+      <div className="opcoes-lado-a-lado">
+      <fieldset>
+        <legend>O que exportar</legend>
+        <label className="opcao-radio"><input type="radio" name="exportar-conteudo" checked={conteudo === 'desempenho'} onChange={() => setConteudo('desempenho')} />Meu desempenho (uma linha por resposta)</label>
+        <label className="opcao-radio"><input type="radio" name="exportar-conteudo" checked={conteudo === 'questoes'} onChange={() => setConteudo('questoes')} />Minhas questões</label>
+      </fieldset>
+      <fieldset>
+        <legend>Formato</legend>
+        <label className="opcao-radio"><input type="radio" name="exportar-formato" checked={formato === 'csv'} onChange={() => setFormato('csv')} />CSV (abre em planilhas)</label>
+        <label className="opcao-radio"><input type="radio" name="exportar-formato" checked={formato === 'json'} onChange={() => setFormato('json')} />JSON</label>
+      </fieldset>
+      </div>
     </Secao>
   )
 }

@@ -51,7 +51,7 @@ data class NexoProperties(
     data class Chat(val mensagemMaxCaracteres: Int, val historicoEnviado: Int, val mensagensPorTopico: Int, val respostaMaxCaracteres: Int, val falaEnviadaMaxCaracteres: Int)
 
     /** Provas: máximo de questões por prova, máximo de assuntos por pedido e maior limite de tempo aceito (em minutos). */
-    data class Prova(val quantidadeMaxima: Int, val assuntosMaximos: Int, val limiteMinutosMaximo: Int)
+    data class Prova(val quantidadeMaxima: Int, val assuntosMaximos: Int, val limiteMinutosMaximo: Int, val creditosPorQuestaoNova: Int, val montagemAssincrona: Boolean, val montagemEspera: Duration)
 
     /** Painel semanal: janela padrão e máxima em semanas, mínimo de respostas para um tópico entrar nos mais fracos e quantos mostrar. */
     data class Painel(val semanas: Int, val semanasMaximo: Int, val minimoRespostas: Int, val fracos: Int, val topicosRecentes: Int)
@@ -69,7 +69,7 @@ data class NexoProperties(
     )
 
     /** [segredo] é compartilhado com o serviço Python (cabeçalho X-Nexo-Segredo); sem valor padrão de propósito. */
-    data class Processamento(val url: String, val segredo: String, val timeout: Duration, val tentativas: Int, val espera: Duration, val saudeTimeout: Duration, val cacheModelos: Duration)
+    data class Processamento(val url: String, val segredo: String, val timeout: Duration, val timeoutExtracao: Duration, val tentativas: Int, val espera: Duration, val saudeTimeout: Duration, val cacheModelos: Duration)
 
     /** Parâmetros da indexação de material: armazenamento, executor em segundo plano, limites de envio, lotes de embedding, plano B dos tópicos e preços do embedding. */
     data class Material(

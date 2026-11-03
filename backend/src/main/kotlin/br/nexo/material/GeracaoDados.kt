@@ -372,6 +372,45 @@ class GeracaoDados(private val jdbc: JdbcTemplate) {
      */
     fun existeHash(topicoId: UUID, hash: String): Boolean = jdbc.queryForObject("SELECT EXISTS (SELECT 1 FROM questao WHERE topico_id = ? AND enunciado_hash = ?)", Boolean::class.java, topicoId, hash)!!
     /**
+     * Questão do tópico mais parecida com um enunciado, pela distância de cosseno (busca exata, sem índice aproximado, só dentro do tópico).
+     * @param topicoId tópico.
+     * @param vetor embedding do enunciado novo.
+     * @return o identificador da questão mais parecida e a similaridade (de 0 a 1), ou nulo se o tópico não tem questões.
+     */
+    fun maisParecida(topicoId: UUID, vetor: List<Double>): Pair<UUID, Double>? {
+        val v = vetor.joinToString(",", "[", "]")
+        return jdbc.query(
+            "SELECT id, 1 - (embedding <=> ?::vector) FROM questao WHERE topico_id = ? ORDER BY embedding <=> ?::vector LIMIT 1",
+            { rs, _ -> rs.getObject(1, UUID::class.java) to rs.getDouble(2).coerceIn(0.0, 1.0) }, v, topicoId, v,
+        ).firstOrNull()
+    }
+
+    /**
+     * Identificador da questão do tópico com o hash do enunciado.
+     * @param topicoId tópico.
+     * @param hash hash do enunciado normalizado.
+     * @return o identificador, ou nulo se não existe.
+     */
+    fun idPorHash(topicoId: UUID, hash: String): UUID? =
+        jdbc.query("SELECT id FROM questao WHERE topico_id = ? AND enunciado_hash = ?", { rs, _ -> rs.getObject(1, UUID::class.java) }, topicoId, hash).firstOrNull()
+
+    /**
+     * Registra uma questão descartada por repetição, com a similaridade, para calibrar o limiar.
+     * @param usuario dono.
+     * @param topicoId tópico.
+     * @param registroId registro da operação de questões.
+     * @param parecida questão gravada que motivou o descarte (nulo se foi repetida dentro da mesma geração).
+     * @param motivo `hash` ou `cosseno`.
+     * @param similaridade similaridade de 0 a 1 (1 no hash).
+     */
+    fun registrarDescarte(usuario: UUID, topicoId: UUID, registroId: UUID, parecida: UUID?, motivo: String, similaridade: Double) {
+        jdbc.update(
+            "INSERT INTO descarte_questao(id,usuario_id,topico_id,registro_geracao_id,questao_parecida_id,motivo,similaridade) VALUES (?,?,?,?,?,?,?)",
+            UUID.randomUUID(), usuario, topicoId, registroId, parecida, motivo, similaridade.toFloat(),
+        )
+    }
+
+    /**
      * Enunciados mais recentes, para o modelo evitar repetir.
      * @param topicoId tópico.
      * @param n máximo de enunciados.

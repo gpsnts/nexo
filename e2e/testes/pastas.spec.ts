@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import { criarContaEEntrar, enviarMaterial, fixture } from '../ajudas'
 
 // Provedores falsos: a "IA" sugere "Estudo de demonstração: <primeiro tópico>".
-test('pastas: criar, estudar dentro da pasta, renomear o estudo (com sugestão da IA), mover e excluir a pasta @celular', async ({ page }) => {
+test('pastas: criar, estudar dentro da pasta, renomear o estudo (com sugestão da IA), mover e excluir a pasta @celular @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await page.getByRole('button', { name: '+ Nova pasta' }).click()
   await page.getByLabel('Nome da nova pasta').fill('História')
@@ -61,7 +61,7 @@ test('o seletor de pasta do cartão é clicável e não abre o estudo @celular',
 })
 
 // Trechos que o estudante tirou da divisão podem ir para um tópico que já existe, na mesma pasta.
-test('trechos de fora vão para um tópico existente, e o tópico passa a mostrar o material @celular', async ({ page }) => {
+test('trechos de fora vão para um tópico existente, e o tópico passa a mostrar o material @celular @ia', async ({ page }) => {
   await criarContaEEntrar(page)
   await page.goto('/novo-estudo')
   await page.getByLabel('Tópico', { exact: true }).fill('Reforço')

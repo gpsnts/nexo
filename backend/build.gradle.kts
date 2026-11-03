@@ -56,5 +56,7 @@ allOpen {
 }
 
 tasks.withType<Test> {
-	useJUnitPlatform()
+	// O teste de carga (tag "carga") é lento e só roda sob pedido: ./gradlew test -PincluirCarga --tests 'br.nexo.CargaTest'
+	useJUnitPlatform { if (!project.hasProperty("incluirCarga")) excludeTags("carga") }
+	testLogging { showStandardStreams = project.hasProperty("incluirCarga") }
 }

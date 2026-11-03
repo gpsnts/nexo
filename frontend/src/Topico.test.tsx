@@ -610,7 +610,7 @@ test('perfil: índice de seções leva a cada seção do perfil', async () => {
   render(<App />)
   const indice = await screen.findByRole('navigation', { name: 'Seções do perfil' })
   const links = Array.from(indice.querySelectorAll('a'))
-  expect(links.map((a) => a.textContent)).toEqual(['Dados pessoais', 'E-mail', 'Senha', 'Sessões', 'Excluir conta'])
+  expect(links.map((a) => a.textContent)).toEqual(['Dados pessoais', 'E-mail', 'Senha', 'Sessões', 'Exportar dados', 'Excluir conta'])
   await screen.findByRole('heading', { name: 'Sessões ativas' })
   for (const a of links) expect(document.querySelector(a.getAttribute('href')!), a.textContent ?? '').toBeTruthy() // cada âncora existe
 })
@@ -668,7 +668,7 @@ test('avisos de que o conteúdo vai a um serviço externo de IA: cadastro, envio
   window.history.replaceState(null, '', '/novo-estudo')
   servidor({ ...base, 'GET /assuntos': [200, []] })
   const c = render(<App />)
-  expect(await screen.findByText(/O texto do material é enviado a um serviço externo/)).toBeTruthy()
+  expect(await screen.findByText(/O texto do material e as imagens das figuras/)).toBeTruthy()
   expect(screen.getByText(/O nome do tópico é enviado a um serviço externo/)).toBeTruthy()
   c.unmount(); cleanup()
   // tópico livre e tópico de material

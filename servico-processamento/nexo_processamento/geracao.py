@@ -232,7 +232,7 @@ def prompt_questoes(topico: str, trechos: list[dict], quantidade: int, evitar: l
         f"TAREFA: QUESTOES\nQUANTIDADE: {quantidade}\nDIFICULDADE: {dificuldade}\nTÓPICO: {topico}\n{base}\n{_bloco_orientacao(orientacao, trechos)}"
         f"NÍVEL PEDIDO — {NIVEIS.get(dificuldade, NIVEIS['media'])}\n"
         f"Crie {quantidade} questões de múltipla escolha em português, cada uma com UMA resposta correta e {ALTERNATIVAS_ERRADAS} alternativas erradas "
-        "plausíveis, distintas entre si. A resposta correta precisa ser sustentada pelo conteúdo; informe em \"ordens\" os trechos que a sustentam"
+        "plausíveis, distintas entre si, de tamanho e nível de detalhe parecidos com os da correta (a correta não pode ser a mais longa nem a mais detalhada, e nenhuma alternativa pode ser um absurdo evidente). A resposta correta precisa ser sustentada pelo conteúdo; informe em \"ordens\" os trechos que a sustentam"
         f"{'' if trechos else ' (lista vazia, não há trechos)'}.{ja}\n"
         'Responda só com JSON: [{"enunciado": "...", "correta": "...", "erradas": ["...", "...", "..."], "ordens": [1]}]\n'
         f"ORDENS_DISPONIVEIS: {json.dumps(_ordens(trechos))}\n\n" + _contexto(trechos)
@@ -269,10 +269,70 @@ def _bem_formada(q, validas: set[int]) -> dict | None:
     return {"enunciado": enun, "correta": correta, "erradas": erradas, "ordens": ordens if validas else []}
 
 
+MARGEM_TAMANHO = 0.15  # a correta só conta como destaque se passar das erradas por mais que isso
+
+
+def _destaque(q: dict) -> str | None:
+    """Diz se a alternativa correta se destaca pelo tamanho.
+
+    Args:
+        q: questão `{enunciado, correta, erradas, ordens}`.
+
+    Returns:
+        `"longa"` se a correta é maior que todas as erradas por mais que a margem, `"curta"` se é menor que todas por mais que a margem, ou nulo.
+    """
+    c, e = len(q["correta"]), [len(x) for x in q["erradas"]]
+    if c > max(e) * (1 + MARGEM_TAMANHO):
+        return "longa"
+    if c < min(e) * (1 - MARGEM_TAMANHO):
+        return "curta"
+    return None
+
+
+def equilibrar_tamanho(modelo: ModeloLinguagem, questoes: list[dict]) -> tuple[list[dict], int, int]:
+    """Reescreve as alternativas erradas das questões em que a correta se destaca pelo tamanho.
+
+    O tamanho da correta entrega a resposta a quem percebe o padrão. Em uma única chamada curta (sem o conteúdo-base), o modelo alonga as erradas quando a correta é a maior, ou as encurta quando é a menor; a correta nunca é tocada, então o que a sustenta no material não muda. Se a resposta do modelo vier ilegível ou não resolver o destaque, a questão original é mantida.
+
+    Args:
+        modelo: modelo de linguagem a usar.
+        questoes: questões bem formadas.
+
+    Returns:
+        As questões (as ajustadas trocadas no lugar), os tokens de entrada e os de saída gastos (zeros se nada precisou de ajuste).
+    """
+    alvos = {i: d for i, q in enumerate(questoes) if (d := _destaque(q))}
+    if not alvos:
+        return questoes, 0, 0
+    itens = [{"i": i, "enunciado": questoes[i]["enunciado"], "correta": questoes[i]["correta"], "erradas": questoes[i]["erradas"],
+              "ajuste": "alongue as erradas com detalhe plausível" if d == "longa" else "encurte as erradas, sem torná-las absurdas"} for i, d in alvos.items()]
+    pedido = (
+        "TAREFA: EQUILIBRAR\nCada item é uma questão de múltipla escolha cuja alternativa correta se destaca pelo tamanho. Reescreva SÓ as 3 alternativas erradas conforme o campo "
+        "\"ajuste\", para terem tamanho e nível de detalhe parecidos com os da correta. Continuam erradas, distintas entre si e plausíveis; não altere a correta nem o enunciado.\n"
+        'Responda só com JSON: [{"i": 0, "erradas": ["...", "...", "..."]}]\n\n' + json.dumps(itens, ensure_ascii=False)
+    )
+    r = modelo.gerar(pedido)
+    novas = primeiro_json(r.texto, "[", lista_de_objetos)
+    saida = list(questoes)
+    for n in (novas if isinstance(novas, list) else []):
+        try:
+            i, erradas = int(n["i"]), [str(x).strip() for x in n["erradas"]]
+        except (KeyError, TypeError, ValueError):
+            continue
+        if i not in alvos or len(erradas) != ALTERNATIVAS_ERRADAS or any(not x for x in erradas):
+            continue
+        if len({t.casefold() for t in [questoes[i]["correta"], *erradas]}) != ALTERNATIVAS_ERRADAS + 1:
+            continue
+        ajustada = {**questoes[i], "erradas": erradas}
+        if _destaque(ajustada) is None:
+            saida[i] = ajustada
+    return saida, r.tokens_entrada, r.tokens_saida
+
+
 def gerar_questoes(modelo: ModeloLinguagem, topico: str, trechos: list[dict], quantidade: int, evitar: list[str], dificuldade: str = "media", orientacao: str | None = None) -> Questoes:
     """Gera questões de múltipla escolha para um tópico.
 
-    Só as bem formadas voltam, no máximo `quantidade`; a verificação de fidelidade e a detecção de repetição são do backend.
+    Só as bem formadas voltam, no máximo `quantidade`, com as erradas ajustadas quando a correta se destaca pelo tamanho; a verificação de fidelidade e a detecção de repetição são do backend.
 
     Args:
         modelo: modelo de linguagem a usar.
@@ -290,7 +350,8 @@ def gerar_questoes(modelo: ModeloLinguagem, topico: str, trechos: list[dict], qu
     brutas = primeiro_json(r.texto, "[", lista_de_objetos)
     validas = set(_ordens(trechos))
     boas = [b for q in (brutas if isinstance(brutas, list) else []) if (b := _bem_formada(q, validas))]
-    return Questoes(boas[:quantidade], r.tokens_entrada, r.tokens_saida)
+    boas, te, ts = equilibrar_tamanho(modelo, boas[:quantidade])
+    return Questoes(boas, r.tokens_entrada + te, r.tokens_saida + ts)
 
 
 def prompt_verificar(topico: str, trechos: list[dict], enunciado: str, alternativas: list[str], correta: int) -> str:

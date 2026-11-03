@@ -545,3 +545,12 @@ button.pequeno { padding: .35rem .8rem; font-size: .85rem; }
 .faixa-campos { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; }
 .faixa-campos .campo { margin: 0; }
 .excluir-discreto { margin-top: 1.5rem; }
+
+.secao fieldset { border: 0; padding: 0; margin: 0 0 1rem; }
+.secao legend { font-weight: 700; margin-bottom: .4rem; }
+.aviso-figuras { border-left: 3px solid var(--primaria); padding-left: .75rem; max-width: 42rem; }
+.opcoes-lado-a-lado { display: flex; flex-wrap: wrap; gap: 0 3rem; }
+.opcoes-lado-a-lado fieldset { min-width: 14rem; }
+/* alvos de toque de pelo menos 40 px no celular (os botões de tema ficam menores de propósito, para o cabeçalho caber) */
+@media (max-width: 34rem) { .sair { min-width: 2.5rem; min-height: 2.5rem; justify-content: center; } .chip, .indice a { min-height: 2.5rem; display: inline-flex; align-items: center; } }
+.form-prova fieldset > .campo { margin-top: .9rem; }

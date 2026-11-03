@@ -188,7 +188,7 @@ class TutorTest : BaseIntegracao() {
     fun `chamadas simultaneas de dica respeitam a cota semanal, que ja conta a vaga reservada`() {
         val c = conta(); val t = topico(c)
         val perguntas = List(6) { questao(c, t) }
-        dono.update("INSERT INTO registro_geracao(id,usuario_id,topico_id,operacao,tipo_entrada,modelo_ia,status,tokens_entrada,tokens_saida,custo_estimado_usd,questoes_aprovadas,questoes_rejeitadas,questoes_repetidas,progresso_percentual,finalizada_em) VALUES (gen_random_uuid(),?,?::uuid,'resumo','topico_livre','m','concluida',0,0,0.0299,0,0,0,100,now())", c.id, t) // 299 de 300 créditos
+        dono.update("INSERT INTO registro_geracao(id,usuario_id,topico_id,operacao,tipo_entrada,modelo_ia,status,tokens_entrada,tokens_saida,custo_estimado_usd,questoes_aprovadas,questoes_rejeitadas,questoes_repetidas,progresso_percentual,finalizada_em) VALUES (gen_random_uuid(),?,?::uuid,'resumo','topico_livre','m','concluida',0,0,0.0199,0,0,0,100,now())", c.id, t) // 199 de 200 créditos
         python.aoReceber = { if (it == "dica") Thread.sleep(200) }
         val antes = chamadas("dica")
         val r = simultaneas(6) { chamar("POST", "/questoes/${perguntas[it]}/dica", token = c.token) }

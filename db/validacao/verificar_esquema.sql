@@ -153,16 +153,49 @@ SELECT t_err('orientação vazia', $q$UPDATE topico SET orientacao = '' WHERE id
 SELECT t_err('orientação acima de 500 caracteres', $q$UPDATE topico SET orientacao = repeat('x', 501) WHERE id='10000007-0000-0000-0000-000000000007'$q$);
 SELECT t_ok('orientação pode voltar a nula', $q$UPDATE topico SET orientacao = NULL WHERE id='10000007-0000-0000-0000-000000000007'$q$);
 
+-- 4f) descarte de questão repetida e avisos de figuras (V13)
+SELECT t_ok('descarte por similaridade de cosseno', $q$INSERT INTO descarte_questao(id,usuario_id,topico_id,registro_geracao_id,questao_parecida_id,motivo,similaridade) VALUES ('20000001-0000-0000-0000-000000000001','aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','1000000e-0000-0000-0000-00000000000e','1000000a-0000-0000-0000-00000000000a','cosseno',0.93)$q$);
+SELECT t_ok('descarte por hash igual (similaridade 1)', $q$INSERT INTO descarte_questao(id,usuario_id,topico_id,registro_geracao_id,questao_parecida_id,motivo,similaridade) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','1000000e-0000-0000-0000-00000000000e','1000000a-0000-0000-0000-00000000000a','hash',1)$q$);
+SELECT t_ok('descarte sem questão parecida', $q$INSERT INTO descarte_questao(id,usuario_id,topico_id,registro_geracao_id,questao_parecida_id,motivo,similaridade) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','1000000e-0000-0000-0000-00000000000e',NULL,'cosseno',0.95)$q$);
+SELECT t_err('motivo de descarte inválido', $q$INSERT INTO descarte_questao(id,usuario_id,topico_id,registro_geracao_id,questao_parecida_id,motivo,similaridade) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','1000000e-0000-0000-0000-00000000000e','1000000a-0000-0000-0000-00000000000a','outro',0.9)$q$);
+SELECT t_err('similaridade acima de 1', $q$INSERT INTO descarte_questao(id,usuario_id,topico_id,registro_geracao_id,questao_parecida_id,motivo,similaridade) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','1000000e-0000-0000-0000-00000000000e','1000000a-0000-0000-0000-00000000000a','cosseno',1.2)$q$);
+SELECT t_err('descarte de A em tópico de B', $q$INSERT INTO descarte_questao(id,usuario_id,topico_id,registro_geracao_id,questao_parecida_id,motivo,similaridade) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000009-0000-0000-0000-000000000009','1000000e-0000-0000-0000-00000000000e','1000000a-0000-0000-0000-00000000000a','cosseno',0.9)$q$);
+SELECT t_err('descarte de A apontando para questão inexistente', $q$INSERT INTO descarte_questao(id,usuario_id,topico_id,registro_geracao_id,questao_parecida_id,motivo,similaridade) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','1000000e-0000-0000-0000-00000000000e',gen_random_uuid(),'cosseno',0.9)$q$);
+SELECT t_ok('descarte de B no tópico de B', $q$INSERT INTO descarte_questao(id,usuario_id,topico_id,registro_geracao_id,motivo,similaridade) SELECT gen_random_uuid(),'bbbbbbbb-0000-0000-0000-000000000002','10000009-0000-0000-0000-000000000009',id,'hash',1 FROM registro_geracao WHERE usuario_id='bbbbbbbb-0000-0000-0000-000000000002' LIMIT 1$q$);
+SELECT t_eq('descarte guarda a questão parecida', (SELECT count(*) FROM descarte_questao WHERE questao_parecida_id='1000000a-0000-0000-0000-00000000000a'), 2);
+INSERT INTO questao(id,usuario_id,topico_id,enunciado,alternativas,resposta_correta,enunciado_hash,embedding,modelo_embedding) VALUES ('1000000f-0000-0000-0000-00000000000f','aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','Tmp?','["a","b"]',0,repeat('d',64),array_fill(0.01::real, ARRAY[1536])::vector,'m');
+INSERT INTO descarte_questao(id,usuario_id,topico_id,registro_geracao_id,questao_parecida_id,motivo,similaridade) VALUES ('20000002-0000-0000-0000-000000000002','aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','1000000e-0000-0000-0000-00000000000e','1000000f-0000-0000-0000-00000000000f','cosseno',0.91);
+DELETE FROM questao WHERE id='1000000f-0000-0000-0000-00000000000f';
+SELECT t_eq('excluir a questão parecida mantém o descarte e anula a referência', (SELECT count(*) FROM descarte_questao WHERE id='20000002-0000-0000-0000-000000000002' AND questao_parecida_id IS NULL AND usuario_id='aaaaaaaa-0000-0000-0000-000000000001'), 1);
+SELECT t_eq('material novo sem figuras ignoradas', (SELECT figuras_acima_do_limite + figuras_com_falha FROM material WHERE id='10000004-0000-0000-0000-000000000004'), 0);
+SELECT t_ok('material com figuras ignoradas', $q$UPDATE material SET figuras_acima_do_limite = 2, figuras_com_falha = 1 WHERE id='10000004-0000-0000-0000-000000000004'$q$);
+SELECT t_err('figuras ignoradas negativas', $q$UPDATE material SET figuras_com_falha = -1 WHERE id='10000004-0000-0000-0000-000000000004'$q$);
+
+-- 4g) prova com questões novas (V14)
+SELECT t_ok('prova sendo montada, com orientação e questões novas', $q$INSERT INTO prova(id,usuario_id,quantidade_solicitada,status,orientacao,questoes_novas,questoes_geradas) VALUES ('1000001a-0000-0000-0000-00000000001a','aaaaaaaa-0000-0000-0000-000000000001',10,'montando','banca FCC',6,2)$q$);
+SELECT t_err('prova montando com instante de início', $q$INSERT INTO prova(id,usuario_id,quantidade_solicitada,status,iniciada_em) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001',5,'montando',now())$q$);
+SELECT t_ok('prova que falhou na montagem guarda o motivo', $q$INSERT INTO prova(id,usuario_id,quantidade_solicitada,status,questoes_novas,motivo_falha) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001',5,'falhou',5,'interrompida')$q$);
+SELECT t_err('motivo de falha em prova que não falhou', $q$INSERT INTO prova(id,usuario_id,quantidade_solicitada,status,motivo_falha) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001',5,'gerada','x')$q$);
+SELECT t_err('orientação da prova em branco', $q$UPDATE prova SET orientacao = '  ' WHERE id='1000001a-0000-0000-0000-00000000001a'$q$);
+SELECT t_err('orientação da prova acima de 500 caracteres', $q$UPDATE prova SET orientacao = repeat('x', 501) WHERE id='1000001a-0000-0000-0000-00000000001a'$q$);
+SELECT t_err('mais questões geradas que novas pedidas', $q$UPDATE prova SET questoes_geradas = 7 WHERE id='1000001a-0000-0000-0000-00000000001a'$q$);
+SELECT t_err('questões novas negativas', $q$UPDATE prova SET questoes_novas = -1 WHERE id='1000001a-0000-0000-0000-00000000001a'$q$);
+SELECT t_err('status de prova fora da lista', $q$UPDATE prova SET status = 'cancelada' WHERE id='1000001a-0000-0000-0000-00000000001a'$q$);
+SELECT t_ok('prova montada passa a gerada', $q$UPDATE prova SET status = 'gerada' WHERE id='1000001a-0000-0000-0000-00000000001a'$q$);
+
 -- 5) isolamento por conta (papel da aplicação)
 SET ROLE nexo_app;
 SELECT t_eq('sem app.usuario_id: nenhuma linha de topico_fonte', (SELECT count(*) FROM topico_fonte), 0);
 SELECT t_eq('sem app.usuario_id: nenhuma mensagem de chat', (SELECT count(*) FROM mensagem_chat), 0);
+SELECT t_eq('sem app.usuario_id: nenhum descarte', (SELECT count(*) FROM descarte_questao), 0);
 SELECT set_config('app.usuario_id','aaaaaaaa-0000-0000-0000-000000000001',false);
 SELECT t_eq('usuário A enxerga as 3 fontes dele', (SELECT count(*) FROM topico_fonte), 3);
 SELECT set_config('app.usuario_id','bbbbbbbb-0000-0000-0000-000000000002',false);
 SELECT t_eq('usuário B não enxerga fontes de A', (SELECT count(*) FROM topico_fonte), 0);
 SELECT t_eq('usuário B não enxerga questões de A', (SELECT count(*) FROM questao), 0);
 SELECT t_eq('usuário B só enxerga o próprio chat', (SELECT count(*) FROM mensagem_chat), 1);
+SELECT t_eq('usuário B só enxerga o próprio descarte', (SELECT count(*) FROM descarte_questao), 1);
+SELECT t_err('usuário B não grava descarte em nome de A', $q$INSERT INTO descarte_questao(id,usuario_id,topico_id,registro_geracao_id,questao_parecida_id,motivo,similaridade) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','1000000e-0000-0000-0000-00000000000e','1000000a-0000-0000-0000-00000000000a','cosseno',0.9)$q$);
 SELECT t_err('usuário B não grava mensagem em nome de A', $q$INSERT INTO mensagem_chat(id,usuario_id,topico_id,papel,conteudo) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000006-0000-0000-0000-000000000006','usuario','x')$q$);
 SELECT t_err('usuário B não grava fonte em nome de A',
  $q$INSERT INTO topico_fonte(id,usuario_id,topico_id,material_id,ordem_trecho_inicial,ordem_trecho_final) VALUES (gen_random_uuid(),'aaaaaaaa-0000-0000-0000-000000000001','10000008-0000-0000-0000-000000000008','10000004-0000-0000-0000-000000000004',4,5)$q$);
@@ -188,6 +221,7 @@ SELECT t_eq('sessões e tokens de A saíram em cascata', (SELECT count(*) FROM s
 SELECT t_eq('sobrou nada de A (fontes, questões, provas, registros, trechos)',
  (SELECT (SELECT count(*) FROM topico_fonte WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM questao WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM prova WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM registro_geracao WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')+(SELECT count(*) FROM trecho WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001')), 0);
 SELECT t_eq('chat de A saiu em cascata e o de B ficou', (SELECT count(*) FROM mensagem_chat WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001') * 10 + (SELECT count(*) FROM mensagem_chat WHERE usuario_id='bbbbbbbb-0000-0000-0000-000000000002'), 1);
+SELECT t_eq('descartes de A saíram em cascata e o de B ficou', (SELECT count(*) FROM descarte_questao WHERE usuario_id='aaaaaaaa-0000-0000-0000-000000000001') * 10 + (SELECT count(*) FROM descarte_questao WHERE usuario_id='bbbbbbbb-0000-0000-0000-000000000002'), 1);
 SELECT t_eq('dados de B intactos', (SELECT count(*) FROM trecho WHERE usuario_id='bbbbbbbb-0000-0000-0000-000000000002'), 5);
 
 -- limpeza

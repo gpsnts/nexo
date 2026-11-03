@@ -30,16 +30,32 @@ data class Inspecao(val tipo: String, val paginas: Int?, val caracteres: Int?)
  * @property conteudo texto do trecho.
  * @property titulo título da seção, se houver.
  * @property nivel nível do título, se houver.
+ * @property tipoConteudo `texto`, `tabela` ou `figura`.
  */
-data class TrechoExtraido(val ordem: Int, val numeroPagina: Int?, val conteudo: String, val titulo: String?, val nivel: Int? = null)
+data class TrechoExtraido(val ordem: Int, val numeroPagina: Int?, val conteudo: String, val titulo: String?, val nivel: Int? = null, val tipoConteudo: String = "texto")
+/**
+ * Figuras que o material tinha e que não entraram como trecho.
+ * @property acimaDoLimite figuras além do limite por material.
+ * @property comFalha figuras ilegíveis ou que o modelo de visão não conseguiu descrever.
+ */
+data class AvisosFiguras(val acimaDoLimite: Int = 0, val comFalha: Int = 0)
+/**
+ * Gasto do modelo de visão com as descrições de figuras.
+ * @property modelo nome do modelo, ou nulo se nenhuma figura foi enviada ao modelo.
+ * @property tokensEntrada tokens do prompt e da imagem.
+ * @property tokensSaida tokens gerados.
+ */
+data class Visao(val modelo: String? = null, val tokensEntrada: Int = 0, val tokensSaida: Int = 0)
 /**
  * Resultado da extração.
  * @property tipo pdf, docx ou txt.
  * @property paginas páginas, se houver.
  * @property caracteres total de caracteres.
  * @property trechos trechos em ordem.
+ * @property avisos figuras que ficaram de fora.
+ * @property visao gasto com a descrição das figuras.
  */
-data class Extracao(val tipo: String, val paginas: Int?, val caracteres: Int, val trechos: List<TrechoExtraido>)
+data class Extracao(val tipo: String, val paginas: Int?, val caracteres: Int, val trechos: List<TrechoExtraido>, val avisos: AvisosFiguras = AvisosFiguras(), val visao: Visao = Visao())
 /**
  * Embeddings devolvidos pelo serviço.
  * @property vetores um vetor por texto.
@@ -128,13 +144,14 @@ interface Processamento {
      */
     fun inspecionar(nome: String, dados: ByteArray): Inspecao
     /**
-     * Extrai o texto e divide em trechos.
+     * Extrai o texto, as tabelas e as figuras (descritas pelo modelo de visão) e divide em trechos.
      * @param nome nome do arquivo.
      * @param dados conteúdo.
+     * @param maxFiguras figuras descritas por material; as demais ficam de fora, com aviso.
      * @return a extração.
      * @throws FalhaProcessamento se não houver texto, o formato for inválido ou o serviço falhar.
      */
-    fun processar(nome: String, dados: ByteArray): Extracao
+    fun processar(nome: String, dados: ByteArray, maxFiguras: Int): Extracao
     /**
      * Gera embeddings de um lote de textos.
      * @param textos textos a vetorizar.
@@ -237,12 +254,20 @@ class ProcessamentoHttp(private val props: NexoProperties, private val json: Jso
     override fun inspecionar(nome: String, dados: ByteArray): Inspecao =
         enviarArquivo("/interno/inspecionar", nome, dados).let { Inspecao(it["tipo"].asString(), it["paginas"]?.takeIf { n -> !n.isNull }?.asInt(), it["caracteres"]?.takeIf { n -> !n.isNull }?.asInt()) }
 
-    override fun processar(nome: String, dados: ByteArray): Extracao = enviarArquivo("/interno/processar", nome, dados).let { r ->
-        Extracao(
-            r["tipo"].asString(), r["paginas"]?.takeIf { !it.isNull }?.asInt(), r["caracteres"].asInt(),
-            r["trechos"].toList().map { TrechoExtraido(it["ordem"].asInt(), it["numero_pagina"]?.takeIf { n -> !n.isNull }?.asInt(), it["conteudo"].asString(), it["titulo"]?.takeIf { n -> !n.isNull }?.asString(), it["nivel"]?.takeIf { n -> !n.isNull }?.asInt()) },
-        )
-    }
+    override fun processar(nome: String, dados: ByteArray, maxFiguras: Int): Extracao =
+        enviarArquivo("/interno/processar", nome, dados, mapOf("max_figuras" to maxFiguras.toString()), props.processamento.timeoutExtracao, tentativas = 1).let { r ->
+            Extracao(
+                r["tipo"].asString(), r["paginas"]?.takeIf { !it.isNull }?.asInt(), r["caracteres"].asInt(),
+                r["trechos"].toList().map {
+                    TrechoExtraido(
+                        it["ordem"].asInt(), it["numero_pagina"]?.takeIf { n -> !n.isNull }?.asInt(), it["conteudo"].asString(), it["titulo"]?.takeIf { n -> !n.isNull }?.asString(),
+                        it["nivel"]?.takeIf { n -> !n.isNull }?.asInt(), it["tipo_conteudo"]?.takeIf { n -> !n.isNull }?.asString() ?: "texto",
+                    )
+                },
+                r["avisos"]?.takeIf { !it.isNull }?.let { AvisosFiguras(it["figuras_acima_do_limite"].asInt(), it["figuras_com_falha"].asInt()) } ?: AvisosFiguras(),
+                r["visao"]?.takeIf { !it.isNull }?.let { Visao(it["modelo"]?.takeIf { n -> !n.isNull }?.asString(), it["tokens_entrada"].asInt(), it["tokens_saida"].asInt()) } ?: Visao(),
+            )
+        }
 
     override fun embeddings(textos: List<String>): Vetores =
         enviarJson("/interno/embeddings", mapOf("textos" to textos)).let { r -> Vetores(r["vetores"].toList().map { v -> v.toList().map { it.asDouble() } }, r["tokens"].asInt(), r["modelo"].asString()) }
@@ -346,17 +371,22 @@ class ProcessamentoHttp(private val props: NexoProperties, private val json: Jso
      * @param rota rota interna.
      * @param nome nome do arquivo (não é enviado: evita path traversal).
      * @param dados conteúdo.
+     * @param campos campos de formulário extras (nome e valor).
+     * @param espera tempo máximo da chamada.
+     * @param tentativas tentativas em 5xx e erro de rede; a extração usa uma só, porque cada tentativa refaz (e paga) a descrição das figuras.
      * @return o JSON da resposta.
      * @throws FalhaProcessamento se o serviço recusar ou falhar.
      */
-    private fun enviarArquivo(rota: String, nome: String, dados: ByteArray): JsonNode = com {
+    private fun enviarArquivo(rota: String, nome: String, dados: ByteArray, campos: Map<String, String> = emptyMap(), espera: java.time.Duration = props.processamento.timeout, tentativas: Int = props.processamento.tentativas): JsonNode = com(tentativas) {
         val limite = "nexo" + UUID.randomUUID().toString().replace("-", "")
         val corpo = ByteArrayOutputStream().apply {
             write("--$limite\r\nContent-Disposition: form-data; name=\"arquivo\"; filename=\"arquivo.bin\"\r\nContent-Type: application/octet-stream\r\n\r\n".toByteArray())
             write(dados)
-            write("\r\n--$limite--\r\n".toByteArray())
+            write("\r\n".toByteArray())
+            campos.forEach { (k, v) -> write("--$limite\r\nContent-Disposition: form-data; name=\"$k\"\r\n\r\n$v\r\n".toByteArray()) }
+            write("--$limite--\r\n".toByteArray())
         }.toByteArray()
-        HttpRequest.newBuilder(URI(base + rota)).timeout(props.processamento.timeout).header("Content-Type", "multipart/form-data; boundary=$limite")
+        HttpRequest.newBuilder(URI(base + rota)).timeout(espera).header("Content-Type", "multipart/form-data; boundary=$limite")
             .header("X-Nexo-Segredo", props.processamento.segredo).POST(HttpRequest.BodyPublishers.ofByteArray(corpo)).build()
     }
 

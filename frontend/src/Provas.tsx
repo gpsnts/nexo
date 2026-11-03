@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, ErroApi } from './api'
 import Cabecalho from './Cabecalho'
 import Carregando from './Esqueleto'
-import { agruparProvas, disponiveis, type Assunto, type ProvaResumo, type ProvasCriadas, type TopicoDaPasta } from './estudo'
+import { agruparProvas, AVISO_IA, disponiveis, ORIENTACAO_MAXIMA, type Assunto, type ProvaResumo, type ProvasCriadas, type TopicoDaPasta, type Uso } from './estudo'
 import { Ilustracao } from './Icones'
 import { irPara, urlPasta, urlProva } from './rotas'
 import { dataCompleta } from './tempo'
@@ -12,7 +12,7 @@ const MAXIMO_QUESTOES = 50  // igual ao padrão do backend; o servidor continua 
 const MAXIMO_MINUTOS = 480
 
 /** Rótulo do estado de uma prova. */
-const STATUS = { gerada: 'Não iniciada', em_andamento: 'Em andamento', concluida: 'Concluída' } as const
+const STATUS = { montando: 'Montando', gerada: 'Não iniciada', em_andamento: 'Em andamento', concluida: 'Concluída', falhou: 'Não foi montada' } as const
 
 /**
  * Provas: lista (as do mesmo pedido juntas) e montagem de uma nova prova por escopo ("estudei até este tópico").
@@ -41,7 +41,7 @@ export default function Provas({ aoIrInicio, aoIrPerfil, aoSair }: { aoIrInicio:
           <h1>Provas</h1>
           {!montando && <button type="button" onClick={() => { setMontando(true); setAviso('') }}>Montar prova</button>}
         </div>
-        <p className="sub">Escolha os assuntos e até que tópico você já estudou. A prova sorteia questões que já existem nos seus tópicos, sem chamar a IA.</p>
+        <p className="sub">Escolha os assuntos e até que tópico você já estudou. A prova pode usar as questões que você já tem, questões novas geradas pela IA na linha que você pedir (uma banca, um vestibular, um foco), ou uma mistura das duas.</p>
         {aviso && <p role="status" className="ok">{aviso}</p>}
         {montando && <Montar aoCancelar={() => setMontando(false)} aoCriar={(r) => {
           if (r.provas.length === 1) return irPara(urlProva(r.provas[0].id))
@@ -79,14 +79,14 @@ export default function Provas({ aoIrInicio, aoIrPerfil, aoSair }: { aoIrInicio:
  */
 function LinhaProva({ prova }: { prova: ProvaResumo }) {
   const nomes = prova.assuntos.map((a) => a.nome).join(', ')
-  const acao = prova.status === 'concluida' ? 'Ver resultado' : prova.status === 'em_andamento' ? 'Continuar' : 'Começar'
+  const acao = prova.status === 'concluida' ? 'Ver resultado' : prova.status === 'em_andamento' ? 'Continuar' : prova.status === 'montando' ? 'Acompanhar' : prova.status === 'falhou' ? 'Abrir' : 'Começar'
   return (
     <div className="linha-prova">
       <div>
         <strong>{nomes}</strong>
         <div className="meta">
           <span>{STATUS[prova.status]}</span>
-          <span>{prova.status === 'concluida' ? `${prova.acertos} de ${prova.quantidade} certas` : `${prova.respondidas} de ${prova.quantidade} respondidas`}</span>
+          <span>{prova.status === 'montando' ? `${prova.questoesGeradas ?? 0} de ${prova.questoesNovas ?? 0} questões novas geradas` : prova.status === 'falhou' ? 'sem questões' : prova.status === 'concluida' ? `${prova.acertos} de ${prova.quantidade} certas` : `${prova.respondidas} de ${prova.quantidade} respondidas`}</span>
           {prova.limiteMinutos && <span>{prova.limiteMinutos} min</span>}
           <span>{dataCompleta(prova.criadaEm)}</span>
         </div>
@@ -97,7 +97,7 @@ function LinhaProva({ prova }: { prova: ProvaResumo }) {
 }
 
 /**
- * Formulário de montagem: assuntos, tópico-limite de cada um, quantidade, prova única ou separadas e limite de tempo.
+ * Formulário de montagem: assuntos, tópico-limite de cada um, quantidade, quantas questões novas gerar (com orientação opcional), prova única ou separadas e limite de tempo.
  * @param props aoCancelar: fecha o formulário; aoCriar: recebe as provas criadas.
  * @returns o formulário.
  */
@@ -107,6 +107,10 @@ function Montar({ aoCancelar, aoCriar }: { aoCancelar: () => void; aoCriar: (r: 
   const [escolhidas, setEscolhidas] = useState<string[]>([]) // ordem em que foram marcadas (vale para repartir a sobra)
   const [limites, setLimites] = useState<Record<string, string>>({})
   const [quantidade, setQuantidade] = useState('10')
+  const [origem, setOrigem] = useState<'banco' | 'novas' | 'misto'>('banco')  // de onde vêm as questões da prova
+  const [novas, setNovas] = useState('0')  // quantas gerar, só no modo misto
+  const [orientacao, setOrientacao] = useState('')
+  const [uso, setUso] = useState<Uso | null>(null)
   const [separadas, setSeparadas] = useState(false)
   const [comTempo, setComTempo] = useState(false)
   const [minutos, setMinutos] = useState('30')
@@ -114,6 +118,9 @@ function Montar({ aoCancelar, aoCriar }: { aoCancelar: () => void; aoCriar: (r: 
   const [faltam, setFaltam] = useState<number | null>(null) // questões disponíveis quando o pedido é grande demais
   const [enviando, setEnviando] = useState(false)
   useEffect(() => { api<Assunto[]>('/assuntos').then(setPastas).catch(() => setPastas([])) }, [])
+  useEffect(() => { api<Uso>('/uso').then(setUso).catch(() => {}) }, [])
+  const nNovas = origem === 'banco' ? 0 : origem === 'novas' ? Number(quantidade) || 0 : Number(novas) || 0
+  const creditos = nNovas * (uso?.creditosPorQuestaoNova ?? 6) * (separadas && escolhidas.length > 1 ? escolhidas.length : 1)
 
   /**
    * Marca ou desmarca um assunto e, ao marcar, carrega os tópicos dele para o tópico-limite.
@@ -138,11 +145,13 @@ function Montar({ aoCancelar, aoCriar }: { aoCancelar: () => void; aoCriar: (r: 
     const n = Number(quantidade), min = Number(minutos)
     if (escolhidas.length === 0) return setErro('Escolha ao menos um assunto.')
     if (!Number.isInteger(n) || n < 1 || n > MAXIMO_QUESTOES) return setErro(`Informe de 1 a ${MAXIMO_QUESTOES} questões.`)
+    if (!Number.isInteger(nNovas) || nNovas < 0 || nNovas > n) return setErro(`As questões novas vão de 0 a ${n}.`)
     if (comTempo && (!Number.isInteger(min) || min < 1 || min > MAXIMO_MINUTOS)) return setErro(`O limite de tempo vai de 1 a ${MAXIMO_MINUTOS} minutos.`)
     setEnviando(true); setErro(''); setFaltam(null)
     try {
       aoCriar(await api<ProvasCriadas>('/provas', { corpo: {
         assuntos: escolhidas.map((id) => ({ assuntoId: id, topicoLimiteId: limites[id] || null })), quantidade: n, separadas: separadas && escolhidas.length > 1, limiteMinutos: comTempo ? min : null,
+        novas: nNovas, orientacao: nNovas > 0 && orientacao.trim() ? orientacao.trim() : null,
       } }))
     } catch (x) {
       setErro(x instanceof ErroApi ? x.message : 'Não foi possível montar a prova. Tente de novo.')
@@ -183,6 +192,33 @@ function Montar({ aoCancelar, aoCriar }: { aoCancelar: () => void; aoCriar: (r: 
         <input id="qtd-prova" type="number" inputMode="numeric" min={1} max={MAXIMO_QUESTOES} value={quantidade} onChange={(e) => setQuantidade(e.target.value)} />
         <small>De 1 a {MAXIMO_QUESTOES}. Com vários assuntos, a quantidade é dividida igualmente entre eles.</small>
       </div>
+      <fieldset>
+        <legend>De onde vêm as questões</legend>
+        <label className="opcao-radio"><input type="radio" name="origem-prova" checked={origem === 'banco'} onChange={() => { setOrigem('banco'); setErro(''); setFaltam(null) }} />Só do meu banco de questões (sorteia as que já existem nos tópicos)</label>
+        <label className="opcao-radio"><input type="radio" name="origem-prova" checked={origem === 'novas'} onChange={() => { setOrigem('novas'); setErro(''); setFaltam(null) }} />Questões novas geradas pela IA, com a orientação que eu der</label>
+        <label className="opcao-radio"><input type="radio" name="origem-prova" checked={origem === 'misto'} onChange={() => { setOrigem('misto'); if (!Number(novas)) setNovas(String(Math.max(1, Math.floor((Number(quantidade) || 2) / 2)))); setErro(''); setFaltam(null) }} />Misturar: parte nova da IA e parte do meu banco</label>
+        {origem === 'misto' && (
+          <div className="campo">
+            <label htmlFor="novas-prova">Quantas questões novas gerar pela IA</label>
+            <input id="novas-prova" type="number" inputMode="numeric" min={1} max={Number(quantidade) || MAXIMO_QUESTOES} value={novas} onChange={(e) => { setNovas(e.target.value); setErro(''); setFaltam(null) }} />
+            <small>As {Math.max(0, (Number(quantidade) || 0) - nNovas)} restantes saem do seu banco de questões.</small>
+          </div>
+        )}
+        {origem !== 'banco' && <small>As questões novas são geradas para os tópicos escolhidos (até o tópico-limite) e ficam salvas neles, para as próximas provas e revisões.</small>}
+      </fieldset>
+      {nNovas > 0 && (
+        <>
+          <div className="campo">
+            <label htmlFor="orientacao-prova">Orientação para as questões novas (opcional)</label>
+            <textarea id="orientacao-prova" rows={3} maxLength={ORIENTACAO_MAXIMA} value={orientacao} onChange={(e) => setOrientacao(e.target.value)}
+              placeholder={'Ex.: "no estilo da banca FCC", "como no vestibular da UFRGS" ou "com foco em Espanha e Portugal dentro do tema"'} />
+            <small>A IA imita o estilo e a ênfase pedidos; ela não consulta provas reais da banca. Em tópico de material, o conteúdo continua fiel ao material. Vale só para esta prova. {orientacao.length}/{ORIENTACAO_MAXIMA}</small>
+          </div>
+          <p className="aviso-ia" role="note">
+            Custo estimado: cerca de {creditos} créditos{uso ? ` (${Math.round(creditos * 100 / uso.creditosLimite)}% da sua cota semanal)` : ''}. A prova leva alguns minutos para ficar pronta, e você pode sair da página enquanto isso. {AVISO_IA.topico}
+          </p>
+        </>
+      )}
       {escolhidas.length > 1 && (
         <fieldset>
           <legend>Como montar</legend>
@@ -203,7 +239,8 @@ function Montar({ aoCancelar, aoCriar }: { aoCancelar: () => void; aoCriar: (r: 
       {erro && <p className="erro" role="alert">{erro}</p>}
       {faltam !== null && (
         <div className="acoes-linha">
-          {faltam > 0 && <button type="button" className="secundario" onClick={() => { setQuantidade(String(faltam)); setErro(''); setFaltam(null) }}>Reduzir para {faltam} {faltam === 1 ? 'questão' : 'questões'}</button>}
+          {faltam > 0 && <button type="button" className="secundario" onClick={() => { setQuantidade(String(faltam + nNovas)); setErro(''); setFaltam(null) }}>Reduzir para {faltam + nNovas} {faltam + nNovas === 1 ? 'questão' : 'questões'}</button>}
+          {Number(quantidade) > faltam + nNovas && <button type="button" onClick={() => { setOrigem('misto'); setNovas(String(Number(quantidade) - faltam)); setErro(''); setFaltam(null) }}>Gerar as {Number(quantidade) - faltam - nNovas} que faltam como questões novas</button>}
           {escolhidas[0] && <button type="button" className="secundario" onClick={() => irPara(urlPasta(escolhidas[0]))}>Abrir os tópicos para gerar mais questões</button>}
         </div>
       )}

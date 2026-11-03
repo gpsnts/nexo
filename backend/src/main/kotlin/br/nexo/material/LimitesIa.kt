@@ -18,7 +18,7 @@ import java.util.Locale
 /** `percentual` e `renovaEm` são o que a tela mostra; `operacoes` e o limite por hora servem só à proteção contra abuso. O dólar não sai do servidor. */
 data class Uso(
     val creditosUsados: Int, val creditosLimite: Int, val percentual: Int, val renovaEm: Instant,
-    val operacoes: Int, val limiteOperacoes: Int, val janelaOperacoesMinutos: Long,
+    val operacoes: Int, val limiteOperacoes: Int, val janelaOperacoesMinutos: Long, val creditosPorQuestaoNova: Int,
 )
 
 /**
@@ -75,7 +75,7 @@ class LimitesIa(private val jdbc: JdbcTemplate, private val props: NexoPropertie
      */
     fun uso(): Uso {
         val usados = creditosDaSemana(); val limite = props.cota.creditosPorSemana
-        return Uso(usados, limite, (usados * 100L / limite).toInt().coerceIn(0, 100), renovaEm(), operacoesDaJanela().size, props.limiteOperacoesPorHora, props.janelaOperacoes.toMinutes())
+        return Uso(usados, limite, (usados * 100L / limite).toInt().coerceIn(0, 100), renovaEm(), operacoesDaJanela().size, props.limiteOperacoesPorHora, props.janelaOperacoes.toMinutes(), props.prova.creditosPorQuestaoNova)
     }
 
     /** Lança 429 `limite_operacoes` (rajada) ou `limite_creditos` (cota da semana, com `esperaSegundos`) se o usuário já atingiu um dos limites. */
@@ -98,6 +98,25 @@ class LimitesIa(private val jdbc: JdbcTemplate, private val props: NexoPropertie
                 HttpStatus.TOO_MANY_REQUESTS,
                 "Você usou toda a sua cota de IA desta semana. Ela renova na $quando.",
                 "limite_creditos", mapOf("esperaSegundos" to Duration.between(relogio.instant(), renova).seconds.coerceAtLeast(1)),
+            )
+        }
+    }
+
+    /**
+     * Confere os limites e se os créditos que restam na semana cobrem uma operação grande, estimada de antemão (a prova com questões novas).
+     * @param necessarios créditos estimados da operação.
+     * @throws ErroNegocio 429 `limite_operacoes` ou `limite_creditos` (inclusive quando a estimativa passa do que resta, com `necessarios` e `restantes` nos dados).
+     */
+    fun exigirCreditos(necessarios: Int) {
+        exigirDisponivel()
+        val restantes = (props.cota.creditosPorSemana - creditosDaSemana()).coerceAtLeast(0)
+        if (necessarios > restantes) {
+            val renova = renovaEm()
+            val quando = DateTimeFormatter.ofPattern("EEEE, dd/MM 'às' HH:mm", Locale.forLanguageTag("pt-BR")).withZone(props.fuso).format(renova)
+            throw ErroNegocio(
+                HttpStatus.TOO_MANY_REQUESTS,
+                "Esta prova precisa de cerca de $necessarios créditos de IA e restam $restantes na sua cota desta semana. Peça menos questões novas ou espere a renovação, na $quando.",
+                "limite_creditos", mapOf("esperaSegundos" to Duration.between(relogio.instant(), renova).seconds.coerceAtLeast(1), "necessarios" to necessarios, "restantes" to restantes),
             )
         }
     }

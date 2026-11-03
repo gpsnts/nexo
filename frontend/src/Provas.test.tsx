@@ -19,7 +19,7 @@ function servidor(rotas: Record<string, Rota | [number, unknown?]>) {
   }))
   return chamadas
 }
-const uso = { creditosUsados: 39, creditosLimite: 300, percentual: 13, renovaEm: '2026-10-19T03:00:00Z', operacoes: 4, limiteOperacoes: 30, janelaOperacoesMinutos: 60 }
+const uso = { creditosUsados: 39, creditosLimite: 300, percentual: 13, renovaEm: '2026-10-19T03:00:00Z', operacoes: 4, limiteOperacoes: 30, janelaOperacoesMinutos: 60, creditosPorQuestaoNova: 6 }
 const base = { 'GET /uso': [200, uso] as [number, unknown], 'POST /auth/refresh': [200, { token: 't', nome: 'Ana' }] as [number, unknown] }
 const pastas = [{ id: 'g', nome: 'Geral', padrao: true }, { id: 'h', nome: 'História', padrao: false }, { id: 'f', nome: 'Física', padrao: false }]
 const topicos = (nomes: string[]) => nomes.map((nome, i) => ({ id: `t${i + 1}`, nome, ordem: i + 1, livre: true, temConteudo: true, limiteDeProvas: 0, totalQuestoes: 4, materiais: [] }))
@@ -89,7 +89,7 @@ test('monta uma prova com tópico-limite, quantidade e tempo e abre a prova cria
   fireEvent.change(screen.getByLabelText('Minutos para fazer a prova'), { target: { value: '45' } })
   clicar('Gerar prova')
   await waitFor(() => expect(window.location.pathname).toBe(`/provas/${P}`))
-  expect(chamadas.find((c) => c.chave === 'POST /provas')!.corpo).toEqual({ assuntos: [{ assuntoId: 'h', topicoLimiteId: 't2' }], quantidade: 12, separadas: false, limiteMinutos: 45 })
+  expect(chamadas.find((c) => c.chave === 'POST /provas')!.corpo).toEqual({ assuntos: [{ assuntoId: 'h', topicoLimiteId: 't2' }], quantidade: 12, separadas: false, limiteMinutos: 45, novas: 0, orientacao: null })
 })
 
 test('com dois assuntos oferece misturar ou separar e avisa quando são várias provas', async () => {
@@ -231,4 +231,110 @@ test('excluir prova pede confirmação e volta à lista', async () => {
   clicar('Excluir definitivamente')
   await waitFor(() => expect(chamadas.some((c) => c.chave === `DELETE /provas/${P}`)).toBe(true))
   await waitFor(() => expect(window.location.pathname).toBe('/provas'))
+})
+
+test('a origem das questões fica explícita: banco por padrão, tudo novo ou misturar, com orientação e custo', async () => {
+  ir('/provas')
+  const chamadas = servidor({
+    ...base, 'GET /provas': [200, []], 'GET /assuntos': [200, pastas], 'GET /assuntos/h/topicos': [200, topicos(['A', 'B'])],
+    'POST /provas': [201, { grupoId: null, provas: [prova({ status: 'montando', questoesNovas: 6, questoesGeradas: 0 })] }],
+  })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Montar prova' }))
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'História' }))
+  expect((screen.getByRole('radio', { name: /Só do meu banco de questões/ }) as HTMLInputElement).checked).toBe(true)
+  expect(screen.queryByLabelText(/Orientação para as questões novas/)).toBeNull()
+  fireEvent.change(screen.getByLabelText('Quantidade de questões'), { target: { value: '8' } })
+  fireEvent.click(screen.getByRole('radio', { name: /Misturar/ }))
+  fireEvent.change(screen.getByLabelText('Quantas questões novas gerar pela IA'), { target: { value: '9' } })
+  clicar('Gerar prova')
+  expect((await screen.findByRole('alert')).textContent).toContain('As questões novas vão de 0 a 8')
+  fireEvent.change(screen.getByLabelText('Quantas questões novas gerar pela IA'), { target: { value: '6' } })
+  expect(screen.getByText(/As 2 restantes saem do seu banco/)).toBeTruthy()
+  const campo = await screen.findByLabelText(/Orientação para as questões novas/)
+  expect(screen.queryByRole('button', { name: /banca FCC|UFRGS/ })).toBeNull()  // só o texto de exemplo na caixa, sem botões de atalho
+  expect((campo as HTMLTextAreaElement).placeholder).toContain('banca FCC')
+  fireEvent.change(campo, { target: { value: '  no estilo da banca FCC  ' } })
+  expect(screen.getByText(/Custo estimado: cerca de 36 créditos \(12% da sua cota semanal\)/)).toBeTruthy()
+  expect(screen.getByText(/não consulta provas reais da banca/)).toBeTruthy()
+  clicar('Gerar prova')
+  await waitFor(() => expect(window.location.pathname).toBe(`/provas/${P}`))
+  expect(chamadas.find((c) => c.chave === 'POST /provas')!.corpo).toMatchObject({ quantidade: 8, novas: 6, orientacao: 'no estilo da banca FCC' })
+})
+
+test('"questões novas geradas pela IA" pede todas as questões novas, sem sorteio do banco', async () => {
+  ir('/provas')
+  const chamadas = servidor({
+    ...base, 'GET /provas': [200, []], 'GET /assuntos': [200, pastas], 'GET /assuntos/h/topicos': [200, topicos(['A'])],
+    'POST /provas': [201, { grupoId: null, provas: [prova({ status: 'montando', questoesNovas: 5 })] }],
+  })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Montar prova' }))
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'História' }))
+  fireEvent.change(screen.getByLabelText('Quantidade de questões'), { target: { value: '5' } })
+  fireEvent.click(screen.getByRole('radio', { name: /Questões novas geradas pela IA/ }))
+  expect(screen.getByLabelText(/Orientação para as questões novas/)).toBeTruthy()
+  expect(screen.queryByLabelText('Quantas questões novas gerar pela IA')).toBeNull()
+  clicar('Gerar prova')
+  await waitFor(() => expect(window.location.pathname).toBe(`/provas/${P}`))
+  expect(chamadas.find((c) => c.chave === 'POST /provas')!.corpo).toMatchObject({ quantidade: 5, novas: 5, orientacao: null })
+})
+
+test('banco insuficiente oferece gerar o que falta como questões novas', async () => {
+  ir('/provas')
+  const chamadas = servidor({
+    ...base, 'GET /provas': [200, []], 'GET /assuntos': [200, pastas], 'GET /assuntos/h/topicos': [200, topicos(['A'])],
+    'POST /provas': [409, { mensagem: 'Há só 4 questões no assunto e você pediu 10.', codigo: 'questoes_insuficientes', disponiveis: 4, pedidas: 10 }],
+  })
+  render(<App />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Montar prova' }))
+  fireEvent.click(await screen.findByRole('checkbox', { name: 'História' }))
+  clicar('Gerar prova')
+  fireEvent.click(await screen.findByRole('button', { name: 'Gerar as 6 que faltam como questões novas' }))
+  expect((screen.getByRole('radio', { name: /Misturar/ }) as HTMLInputElement).checked).toBe(true)
+  expect((screen.getByLabelText('Quantas questões novas gerar pela IA') as HTMLInputElement).value).toBe('6')
+  expect(chamadas.filter((c) => c.chave === 'POST /provas')).toHaveLength(1)
+})
+
+test('prova em montagem mostra o andamento, consulta de novo e fica pronta; cancelar exclui', async () => {
+  ir(`/provas/${P}`)
+  let n = 0
+  const chamadas = servidor({
+    ...base,
+    [`GET /provas/${P}`]: () => [200, ++n < 2 ? aberta(prova({ status: 'montando', quantidade: 0, solicitadas: 6, questoesNovas: 6, questoesGeradas: 2 }), [])
+      : aberta(prova({ quantidade: 6, solicitadas: 6, questoesNovas: 6, questoesGeradas: 6, orientacao: 'banca FCC' }), [q(1), q(2)])],
+    [`DELETE /provas/${P}`]: [204], 'GET /provas': [200, []],
+  })
+  render(<App />)
+  expect(await screen.findByRole('progressbar', { name: 'Andamento da montagem da prova' })).toBeTruthy()
+  expect(screen.getByText(/2 de 6 questões novas geradas/)).toBeTruthy()
+  expect(await screen.findByText('Pronta para começar', {}, { timeout: 4000 })).toBeTruthy()
+  expect(screen.getByText(/6 questões novas geradas pela IA para esta prova/)).toBeTruthy()
+  expect(screen.getByText(/Orientação dada às questões novas: “banca FCC”/)).toBeTruthy()
+  expect(chamadas.filter((c) => c.chave === `GET /provas/${P}`).length).toBeGreaterThanOrEqual(2)
+})
+
+test('prova que saiu com menos questões que o pedido avisa; a que falhou explica', async () => {
+  ir(`/provas/${P}`)
+  servidor({ ...base, [`GET /provas/${P}`]: [200, aberta(prova({ quantidade: 3, solicitadas: 5, questoesNovas: 3, questoesGeradas: 1 }), [q(1)])] })
+  render(<App />)
+  expect(await screen.findByText(/Foram pedidas 5 questões, mas só 3 entraram/)).toBeTruthy()
+  cleanup(); vi.unstubAllGlobals()
+  servidor({ ...base, [`GET /provas/${P}`]: [200, aberta(prova({ status: 'falhou', quantidade: 0, motivoFalha: 'sem_questoes' }), [])] })
+  render(<App />)
+  expect((await screen.findByRole('alert')).textContent).toContain('não gerou nenhuma questão aproveitável')
+  expect(screen.getByText(/já contou na sua cota/)).toBeTruthy()
+  cleanup(); vi.unstubAllGlobals()
+  servidor({ ...base, [`GET /provas/${P}`]: [200, aberta(prova({ status: 'falhou', quantidade: 0, motivoFalha: 'limite_creditos' }), [])] })
+  render(<App />)
+  expect((await screen.findByRole('alert')).textContent).toContain('cota de IA desta semana acabou')
+})
+
+test('na lista, prova em montagem mostra o andamento e leva a acompanhar', async () => {
+  ir('/provas')
+  servidor({ ...base, 'GET /provas': [200, [prova({ status: 'montando', quantidade: 0, questoesNovas: 6, questoesGeradas: 3 })]] })
+  render(<App />)
+  expect(await screen.findByText('3 de 6 questões novas geradas')).toBeTruthy()
+  clicar('Acompanhar: prova de História')
+  expect(window.location.pathname).toBe(`/provas/${P}`)
 })

@@ -49,7 +49,7 @@ class GeracaoTest : BaseIntegracao() {
     private fun roteiro(vararg enunciados: String) = enunciados.joinToString(",", "[", "]") { """{"enunciado":"$it","correta":"Certa $it","erradas":["E1 $it","E2 $it","E3 $it"],"ordens":[1]}""" }
 
     @AfterEach fun restaurar() {
-        python.propostaTopicos = "[]"; python.statusGeracao = null; python.reprovar = { false }; python.semApoio = false; python.naoSustentada = false; python.roteiroQuestoes.clear(); python.aoReceber = null
+        python.propostaTopicos = "[]"; python.statusGeracao = null; python.reprovar = { false }; python.semApoio = false; python.naoSustentada = false; python.roteiroQuestoes.clear(); python.vetorPersonalizado = { null }; python.aoReceber = null
     }
 
     @Test
@@ -202,6 +202,45 @@ class GeracaoTest : BaseIntegracao() {
         val g2 = geracao(c, questoes(c, a, 1).corpo["registroId"].asString())
         assertEquals(1, g2["repetidas"].asInt(), "repetida de uma geração anterior do mesmo tópico"); assertEquals(1, g2["gravadas"].asInt())
         assertEquals(1, dono.queryForObject("SELECT sum(questoes_repetidas) FROM registro_geracao WHERE operacao = 'questoes' AND topico_id = ?::uuid AND criado_em = (SELECT max(criado_em) FROM registro_geracao WHERE operacao = 'questoes' AND topico_id = ?::uuid)", Int::class.java, a, a))
+    }
+
+    @Test
+    fun `enunciado parecido acima do limiar e descartado, abaixo e gravado, e a similaridade fica registrada`() {
+        val c = conta(); val (_, a, _) = material(c)
+        val base = python.vetorDe("Base")
+        val pos = base.indexOf(1.0)
+        // paráfrase: quase o mesmo vetor (cosseno ~0,995); "Outro assunto": metade do peso em outra posição (cosseno ~0,71)
+        python.vetorPersonalizado = {
+            when (it) {
+                "Parafrase" -> List(1536) { i -> if (i == pos) 1.0 else if (i == (pos + 1) % 1536) 0.1 else 0.0 }
+                "Outro assunto" -> List(1536) { i -> if (i == pos || i == (pos + 1) % 1536) 1.0 else 0.0 }
+                else -> null
+            }
+        }
+        python.roteiroQuestoes += roteiro("Base", "Parafrase", "Outro assunto")
+        val g = geracao(c, questoes(c, a, 2).corpo["registroId"].asString())
+        assertEquals(2, nQuestoes(a), "Base e Outro assunto; a paráfrase foi descartada")
+        assertEquals(1, g["repetidas"].asInt())
+        val d = dono.queryForList("SELECT motivo, similaridade, usuario_id, questao_parecida_id FROM descarte_questao WHERE topico_id = ?::uuid", a)
+        assertEquals(1, d.size)
+        assertEquals("cosseno", d[0]["motivo"]); assertEquals(c.id, d[0]["usuario_id"])
+        assertTrue((d[0]["similaridade"] as Number).toDouble() in 0.99..1.0)
+        assertEquals(dono.queryForObject("SELECT id FROM questao WHERE topico_id = ?::uuid AND enunciado = 'Base'", UUID::class.java, a), d[0]["questao_parecida_id"])
+    }
+
+    @Test
+    fun `descarte por hash tambem e registrado e a repeticao de uma conta nao descarta a de outra`() {
+        val c = conta(); val (_, a, _) = material(c)
+        python.roteiroQuestoes += roteiro("Mesmo enunciado", "Mesmo enunciado!", "Outro")
+        geracao(c, questoes(c, a, 3).corpo["registroId"].asString())
+        assertEquals(listOf("hash" to 1.0), dono.queryForList("SELECT motivo, similaridade FROM descarte_questao WHERE topico_id = ?::uuid", a).map { it["motivo"] to (it["similaridade"] as Number).toDouble() })
+        // outra conta, mesmo enunciado em tópico próprio: nada é descartado e nenhum descarte aparece para ela
+        val b = conta(); val (_, ab, _) = material(b)
+        python.roteiroQuestoes += roteiro("Mesmo enunciado")
+        val gb = geracao(b, questoes(b, ab, 1).corpo["registroId"].asString())
+        assertEquals(1, gb["gravadas"].asInt()); assertEquals(0, gb["repetidas"].asInt())
+        assertEquals(0, dono.queryForObject("SELECT count(*) FROM descarte_questao WHERE usuario_id = ?", Int::class.java, b.id))
+        assertEquals(1, dono.queryForObject("SELECT count(*) FROM descarte_questao WHERE usuario_id = ?", Int::class.java, c.id))
     }
 
     @Test
@@ -422,7 +461,7 @@ class GeracaoTest : BaseIntegracao() {
     @Test
     fun `cota semanal esgotada recusa com mensagem clara`() {
         val c = conta(); val t = livre(c)
-        encher(c, 1, "10.000000")   // US$ 10 = 100 mil créditos: muito além da cota de 300
+        encher(c, 1, "10.000000")   // US$ 10 = 100 mil créditos: muito além da cota de 200
         val r = questoes(c, t)
         assertEquals(429, r.status); assertEquals("limite_creditos", r.corpo["codigo"].asString()); assertTrue(r.corpo["mensagem"].asString().isNotBlank())
         assertEquals(0, nQuestoes(t))
