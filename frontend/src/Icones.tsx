@@ -153,3 +153,12 @@ export function Ilustracao({ tipo }: { tipo: 'estudos' | 'revisao' | 'desempenho
       <rect x="52" y="22" width="76" height="86" rx="12" fill="#fff" stroke="currentColor" strokeWidth="4" /><path d="M66 48h46M66 62h46M66 76h28" stroke="currentColor" strokeWidth="5" strokeLinecap="round" /><circle cx="130" cy="24" r="8" fill="#fbbf24" /></svg>
   )
 }
+
+/**
+ * Ícone de administração (escudo), decorativo (o rótulo de texto acompanha).
+ * @param props tam: tamanho em pixels (padrão 20).
+ * @returns o SVG do ícone.
+ */
+export function IconeAdmin({ tam }: { tam?: number }) {
+  return <Traco tam={tam}><><path d="M12 3 5 6v5.5c0 4.2 2.9 7.6 7 9 4.1-1.4 7-4.8 7-9V6l-7-3Z" /><path d="m9 12 2.2 2.2L15.5 10" /></></Traco>
+}

@@ -1,0 +1,10 @@
+# Ensaio local da produção, com localhost no lugar do domínio. Use sempre com um projeto separado, para não tocar no banco de desenvolvimento:
+#   docker compose -p nexo-ensaio -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.ensaio.yml --env-file <arquivo> up -d --build
+# Acrescenta um servidor de e-mail local (as mensagens aparecem em http://127.0.0.1:8025).
+services:
+  email:
+    image: axllent/mailpit:latest
+    ports: ["127.0.0.1:8025:8025"]
+  backend:
+    depends_on:
+      email: {condition: service_started}

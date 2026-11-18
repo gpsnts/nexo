@@ -19,8 +19,9 @@ import java.util.UUID
  * Dados do perfil do usuário.
  * @property nome nome de exibição.
  * @property email e-mail de acesso.
+ * @property admin verdadeiro se a conta é de administrador (a interface mostra o painel).
  */
-data class PerfilDto(val nome: String, val email: String)
+data class PerfilDto(val nome: String, val email: String, val admin: Boolean = false)
 /**
  * Sessão ativa na tela "Sessões ativas".
  * @property id família do refresh.
@@ -60,9 +61,11 @@ class ContaService(
         segundoPlano.executar {
             if (tokens.pedidosNaUltimaHora(u.id, REDEFINICAO) < props.conta.pedidosPorHora) {
                 val bruto = tokens.criar(u.id, REDEFINICAO, null, props.conta.validadeRedefinicao)
-                email.enviar(u.email, "Redefinir sua senha no Nexo",
-                    "Olá, ${u.nome}.\n\nPara criar uma nova senha, abra o link (vale por ${props.conta.validadeRedefinicao.toMinutes()} minutos e só pode ser usado uma vez):\n" +
-                        "${props.conta.urlFrontend}/redefinir-senha?token=$bruto\n\nSe não foi você, ignore este e-mail.")
+                email.enviar(u.email, "Redefinir sua senha no Nexo", ModeloEmail.montar(
+                    "Crie uma nova senha", u.nome,
+                    listOf("Recebemos um pedido para criar uma nova senha. O link vale por ${props.conta.validadeRedefinicao.toMinutes()} minutos e só pode ser usado uma vez."),
+                    BotaoEmail("Criar nova senha", "${props.conta.urlFrontend}/redefinir-senha?token=$bruto"),
+                    "Se não foi você, ignore este e-mail: sua senha continua a mesma."))
             }
         }
     }
@@ -115,25 +118,34 @@ class ContaService(
             throw emailEmUso()
         }
         // Aviso ao endereço ANTIGO: se não foi o dono, é a chance de perceber.
-        enviar(antigo, "O e-mail da sua conta Nexo foi alterado",
-            "Olá, $nome.\n\nO e-mail de acesso da sua conta foi alterado para ${mascarar(novo)}.\n\n" +
-                "Se não foi você, recupere o acesso agora em ${props.conta.urlFrontend} (\"Esqueci minha senha\") e troque a senha.")
+        enviar(antigo, "O e-mail da sua conta Nexo foi alterado", ModeloEmail.montar(
+            "O e-mail da sua conta foi alterado", nome,
+            listOf("O e-mail de acesso da sua conta foi alterado para ${mascarar(novo)}."),
+            BotaoEmail("Recuperar acesso", props.conta.urlFrontend),
+            "Se não foi você, recupere o acesso agora (\"Esqueci minha senha\" na tela de entrada) e troque a senha."))
     }
 
     // ---- perfil (autenticado; tudo sai do JWT, nenhuma rota recebe id de usuário) ----
 
     /**
      * Perfil do usuário autenticado.
-     * @return nome e e-mail.
+     * @return nome, e-mail e se é administrador.
      */
-    fun perfil() = atual().let { PerfilDto(it.nome, it.email) }
+    fun perfil() = atual().let(::paraDto)
+
+    /**
+     * Monta o perfil de uma conta.
+     * @param u conta.
+     * @return nome, e-mail e indicação de administrador.
+     */
+    private fun paraDto(u: Usuario) = PerfilDto(u.nome, u.email, props.admin.ehAdmin(u.email))
 
     /**
      * Altera o nome do usuário autenticado.
      * @param nome novo nome (sem espaços nas pontas).
      * @return o perfil atualizado.
      */
-    fun alterarNome(nome: String) = tx.execute { usuarios.findById(atual().id).get().also { it.nome = nome.trim() } }.let { PerfilDto(it.nome, it.email) }
+    fun alterarNome(nome: String) = tx.execute { usuarios.findById(atual().id).get().also { it.nome = nome.trim() } }.let(::paraDto)
 
     /**
      * Pede a troca de e-mail: envia o link ao novo endereço; o e-mail de acesso só muda depois da confirmação.
@@ -151,9 +163,11 @@ class ContaService(
             tokens.invalidarPendentes(u.id, CONFIRMACAO)
             tokens.criar(u.id, CONFIRMACAO, novo, props.conta.validadeConfirmacaoEmail)
         }
-        enviar(novo, "Confirme seu novo e-mail no Nexo",
-            "Olá, ${u.nome}.\n\nPara confirmar que este é o seu novo e-mail, abra o link (vale por ${props.conta.validadeConfirmacaoEmail.toHours()} horas):\n" +
-                "${props.conta.urlFrontend}/confirmar-email?token=$bruto\n\nO e-mail de acesso só muda depois da confirmação.")
+        enviar(novo, "Confirme seu novo e-mail no Nexo", ModeloEmail.montar(
+            "Confirme seu novo e-mail", u.nome,
+            listOf("Confirme que este é o seu novo e-mail de acesso. O link vale por ${props.conta.validadeConfirmacaoEmail.toHours()} horas."),
+            BotaoEmail("Confirmar novo e-mail", "${props.conta.urlFrontend}/confirmar-email?token=$bruto"),
+            "O e-mail de acesso só muda depois da confirmação."))
     }
 
     /**
@@ -255,10 +269,10 @@ class ContaService(
      * Envia um e-mail em segundo plano.
      * @param para destinatário.
      * @param assunto assunto.
-     * @param texto corpo.
+     * @param mensagem texto e HTML prontos.
      * @return nada; a tarefa roda em segundo plano.
      */
-    private fun enviar(para: String, assunto: String, texto: String) = segundoPlano.executar { email.enviar(para, assunto, texto) }
+    private fun enviar(para: String, assunto: String, mensagem: MensagemEmail) = segundoPlano.executar { email.enviar(para, assunto, mensagem) }
 
     /**
      * Avisa por e-mail que a senha foi alterada, com data e hora no fuso configurado.
@@ -266,9 +280,11 @@ class ContaService(
      */
     private fun avisarSenhaAlterada(u: Usuario) {
         val quando = DateTimeFormatter.ofPattern("dd/MM/yyyy 'às' HH:mm").withZone(props.fuso).format(relogio.instant())
-        enviar(u.email, "Sua senha do Nexo foi alterada",
-            "Olá, ${u.nome}.\n\nA senha da sua conta foi alterada em $quando.\n\n" +
-                "Se não foi você, recupere o acesso agora em ${props.conta.urlFrontend} (\"Esqueci minha senha\").")
+        enviar(u.email, "Sua senha do Nexo foi alterada", ModeloEmail.montar(
+            "Sua senha foi alterada", u.nome,
+            listOf("A senha da sua conta foi alterada em $quando."),
+            BotaoEmail("Recuperar acesso", props.conta.urlFrontend),
+            "Se não foi você, recupere o acesso agora (\"Esqueci minha senha\" na tela de entrada)."))
     }
 
     // m***@dominio.com: o aviso mostra para onde foi sem expor o endereço inteiro.

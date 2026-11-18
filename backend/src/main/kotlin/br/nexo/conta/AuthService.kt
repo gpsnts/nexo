@@ -17,8 +17,9 @@ import java.util.UUID
  * Resposta de autenticação enviada ao cliente.
  * @property token JWT de acesso.
  * @property nome nome do usuário.
+ * @property admin verdadeiro se a conta é de administrador (a interface mostra o painel).
  */
-data class Sessao(val token: String, val nome: String)
+data class Sessao(val token: String, val nome: String, val admin: Boolean = false)
 
 /** [refresh] vai para o cookie HttpOnly, nunca para o corpo da resposta. */
 class Autenticacao(val sessao: Sessao, val refresh: String)
@@ -45,7 +46,7 @@ class AuthService(
     private val auditoria: Auditoria,
 ) {
     /**
-     * A conta nasce sem e-mail verificado e SEM sessão: o usuário só entra depois de confirmar o link.
+     * A conta nasce sem e-mail verificado e SEM sessão: o usuário só entra depois de confirmar o link .
      * @param nome nome de exibição.
      * @param email e-mail (vira minúsculas).
      * @param senha senha, validada pela [PoliticaSenha].
@@ -79,7 +80,7 @@ class AuthService(
      * @param senha senha informada.
      * @param origem dispositivo e IP, gravados na sessão.
      * @return JWT de acesso e refresh para o cookie.
-     * @throws ErroNegocio 401 para credenciais inválidas ou conta bloqueada; 403 se o e-mail não foi verificado.
+     * @throws ErroNegocio 401 para credenciais inválidas ou conta bloqueada; 403 se o e-mail não foi verificado ou se a conta está suspensa.
      */
     fun entrar(email: String, senha: String, origem: Origem): Autenticacao {
         val usuario = usuarios.findByEmail(normalizarEmail(email))
@@ -88,6 +89,10 @@ class AuthService(
         if (usuario!!.emailVerificadoEm == null) {
             auditoria.registrar("login_nao_verificado", usuario.id)
             throw ErroNegocio(HttpStatus.FORBIDDEN, "Confirme seu e-mail para entrar. Enviamos um link quando você criou a conta.", "email_nao_verificado")
+        }
+        EstadoConta.erro(usuario.statusConta)?.let {
+            auditoria.registrar("login_recusado_${usuario.statusConta}", usuario.id)
+            throw it
         }
         auditoria.registrar("login_ok", usuario.id)
         return abrirSessao(usuario, origem)
@@ -128,12 +133,15 @@ class AuthService(
      * @param bruto refresh recebido no cookie.
      * @param origem dispositivo e IP.
      * @return novo JWT de acesso e novo refresh.
-     * @throws ErroNegocio 401 se o refresh for inválido, usado, revogado ou expirado.
+     * @throws ErroNegocio 401 se o refresh for inválido, usado, revogado ou expirado; 403 `conta_suspensa` se a conta foi suspensa.
      */
     fun renovar(bruto: String?, origem: Origem): Autenticacao {
         val aut = bruto?.takeIf { it.isNotBlank() }?.let { b ->
             tx.execute {
                 val s = sessoes.findByTokenHash(Tokens.hash(b)) ?: return@execute null
+                val usuario = usuarios.findById(s.usuarioId).orElse(null) ?: return@execute null
+                // Antes da conferência do token: suspender revoga as sessões, e o motivo precisa aparecer em vez de um "sessão expirada".
+                EstadoConta.erro(usuario.statusConta)?.let { throw it }
                 val agora = relogio.instant()
                 if (sessoes.revogar(s.id, agora) == 0) { // já usado ou revogado
                     sessoes.revogarFamilia(s.familiaId, agora)
@@ -141,7 +149,6 @@ class AuthService(
                     return@execute null
                 }
                 if (s.expiraEm.isBefore(agora)) return@execute null
-                val usuario = usuarios.findById(s.usuarioId).orElse(null) ?: return@execute null
                 novaSessao(usuario, s.familiaId, origem, s.inicioEm)
             }
         }
@@ -181,7 +188,7 @@ class AuthService(
         val bruto = Tokens.novo()
         sessoes.save(SessaoRefresh(UUID.randomUUID(), usuario.id, familia, Tokens.hash(bruto), relogio.instant().plus(props.jwt.validadeRefresh),
             dispositivo = origem.dispositivo, ip = origem.ip, inicioEm = inicio))
-        return Autenticacao(Sessao(jwt.emitir(usuario.id, familia), usuario.nome), bruto)
+        return Autenticacao(Sessao(jwt.emitir(usuario.id, familia), usuario.nome, props.admin.ehAdmin(usuario.email)), bruto)
     }
 
     /**

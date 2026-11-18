@@ -28,9 +28,11 @@ class VerificacaoService(
     fun enviar(u: Usuario) = segundoPlano.executar {
         if (tokens.pedidosNaUltimaHora(u.id, VERIFICACAO) < props.conta.pedidosPorHora) {
             val bruto = tokens.criar(u.id, VERIFICACAO, null, props.conta.validadeConfirmacaoEmail)
-            email.enviar(u.email, "Confirme seu e-mail no Nexo",
-                "Olá, ${u.nome}.\n\nPara ativar sua conta, confirme este e-mail abrindo o link (vale por ${props.conta.validadeConfirmacaoEmail.toHours()} horas):\n" +
-                    "${props.conta.urlFrontend}/verificar-email?token=$bruto\n\nSe não foi você quem criou a conta, ignore este e-mail.")
+            email.enviar(u.email, "Confirme seu e-mail no Nexo", ModeloEmail.montar(
+                "Confirme seu e-mail", u.nome,
+                listOf("Falta só um passo para ativar sua conta: confirme que este e-mail é seu. O link vale por ${props.conta.validadeConfirmacaoEmail.toHours()} horas."),
+                BotaoEmail("Ativar conta", "${props.conta.urlFrontend}/verificar-email?token=$bruto"),
+                "Se não foi você quem criou a conta, ignore este e-mail."))
         }
     }
 

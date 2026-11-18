@@ -1,11 +1,12 @@
+import { ehAdmin } from './api'
 import BarraUso from './BarraUso'
-import { IconeDesempenho, IconeInicio, IconeMais, IconeProva, IconePerfil, IconeRevisar, IconeSair } from './Icones'
+import { IconeAdmin, IconeDesempenho, IconeInicio, IconeMais, IconeProva, IconePerfil, IconeRevisar, IconeSair } from './Icones'
 import Marca from './Marca'
 import { irPara } from './rotas'
 import TemaToggle from './TemaToggle'
 
 /** Item de navegação que está ativo. */
-type Atual = 'inicio' | 'perfil' | 'estudo' | 'revisar' | 'provas' | 'desempenho'
+type Atual = 'inicio' | 'perfil' | 'estudo' | 'revisar' | 'provas' | 'desempenho' | 'admin'
 
 /**
  * Esqueleto de navegação: barra lateral no computador, barra inferior no celular (o CSS decide). Todos os itens têm rótulo de texto.
@@ -35,6 +36,7 @@ export default function Cabecalho({ atual, aoIrInicio, aoIrPerfil, aoSair, atalh
         {item('provas', 'Provas', <IconeProva />, () => irPara('/provas'))}
         {item('desempenho', 'Desempenho', <IconeDesempenho />, () => irPara('/desempenho'))}
         {item('perfil', 'Perfil', <IconePerfil />, aoIrPerfil)}
+        {ehAdmin() && item('admin', 'Admin', <IconeAdmin />, () => irPara('/admin'))}
       </nav>
       <div className="cab-fim">
         <BarraUso />

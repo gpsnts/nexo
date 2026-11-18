@@ -1,0 +1,15 @@
+# Porta de entrada pública. O Caddy cuida do certificado e do HTTPS; as regras da aplicação
+# (rota /api, tamanho do envio, política de conteúdo) ficam no nginx do frontend.
+{
+	email {$NEXO_ACME_EMAIL}
+}
+
+{$NEXO_DOMINIO} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	# O Caddy troca o X-Forwarded-For pelo IP real de quem chegou: o cliente não consegue forjá-lo.
+	reverse_proxy frontend:80
+}

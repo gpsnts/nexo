@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { api, definirToken, quandoPerderSessao, renovarSessao, type Sessao } from './api'
+import { api, definirAdmin, definirToken, ehAdmin, motivoDoCorte, quandoPerderSessao, renovarSessao, type Sessao } from './api'
+import Admin from './Admin'
 import Entrar, { type Modo } from './Entrar'
 import Desempenho from './Desempenho'
 import Historico from './Historico'
@@ -76,8 +77,8 @@ export default function App() {
     window.dispatchEvent(new Event(EVENTO_ROTA))
   }, [])
 
-  const entrar = useCallback((s: Sessao) => { definirToken(s.token); marcarSessao(true); setAviso(''); setSessao({ nome: s.nome }) }, [])
-  const sair = useCallback(() => { definirToken(null); marcarSessao(false); setSessao(null) }, [])
+  const entrar = useCallback((s: Sessao) => { definirToken(s.token); definirAdmin(!!s.admin); marcarSessao(true); setAviso(''); setSessao({ nome: s.nome }) }, [])
+  const sair = useCallback(() => { definirToken(null); definirAdmin(false); marcarSessao(false); setSessao(null) }, [])
 
   useEffect(() => {
     if (ehLink(rotaDaUrl()) && window.location.search) window.history.replaceState(null, '', window.location.pathname)
@@ -85,9 +86,9 @@ export default function App() {
 
   useEffect(() => {
     // Sessão perdida sem o usuário pedir (renovação recusada): volta ao login explicando o motivo.
-    quandoPerderSessao(() => { sair(); setAviso('Sua sessão expirou. Entre novamente.') })
+    quandoPerderSessao((motivo) => { sair(); setAviso(motivo ?? 'Sua sessão expirou. Entre novamente.') })
     // Recarregar a página: o token em memória some, mas o cookie de refresh devolve a sessão (só sondamos quem já entrou antes).
-    if (talvezTenhaSessao()) renovarSessao().then(entrar).catch(() => marcarSessao(false)).finally(() => setCarregando(false))
+    if (talvezTenhaSessao()) renovarSessao().then(entrar).catch((e) => { marcarSessao(false); const motivo = motivoDoCorte(e); if (motivo) setAviso(motivo) }).finally(() => setCarregando(false))
   }, [entrar, sair])
 
   // Sem sessão, telas internas levam ao login e voltam para o destino depois; com sessão, o login leva ao destino.
@@ -136,6 +137,7 @@ export default function App() {
   if (rota === 'historico') return <Historico {...comum} aoAbrirMaterial={abrirMaterial} aoAbrirTopico={abrirTopico} />
   if (rota === 'prova') return <Prova key={idDaProva()} id={idDaProva()!} {...comum} />
   if (rota === 'pasta') return <TopicosDaPasta key={idDaPasta()} id={idDaPasta()!} {...comum} aoAbrirTopico={abrirTopico} />
+  if (rota === 'admin') return ehAdmin() ? <Admin {...comum} /> : <NaoEncontrada logado aoVoltar={() => navegar('inicio')} />
   if (rota === 'desempenho') return <Desempenho {...comum} aoAbrirTopico={abrirTopico} />
   if (rota === 'novo') return <NovoEstudo {...comum} aoAbrirMaterial={abrirMaterial} aoAbrirTopico={abrirTopico} />
   if (rota === 'material')

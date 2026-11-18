@@ -120,6 +120,12 @@ SELECT t_ok('contagem de falhas e bloqueio', $q$UPDATE usuario SET falhas_login 
 SELECT t_ok('e-mail verificado e dados do dispositivo na sessão', $q$UPDATE usuario SET email_verificado_em = now() WHERE id='bbbbbbbb-0000-0000-0000-000000000002'; UPDATE sessao SET dispositivo='Firefox em Linux', ip='127.0.0.1' WHERE id='20000001-0000-0000-0000-000000000001'$q$);
 SELECT t_eq('conta nova nasce sem e-mail verificado', (SELECT count(*) FROM usuario WHERE email_verificado_em IS NULL AND id='aaaaaaaa-0000-0000-0000-000000000001'), 1);
 SELECT t_eq('índice parcial das contas não verificadas (V4)', (SELECT count(*) FROM pg_indexes WHERE indexname='usuario_nao_verificado_idx' AND indexdef LIKE '%email_verificado_em IS NULL%'), 1);
+SELECT t_eq('conta nasce ativa e sem cota própria (V15)', (SELECT count(*) FROM usuario WHERE id='aaaaaaaa-0000-0000-0000-000000000001' AND status_conta='ativo' AND cota_creditos IS NULL), 1);
+SELECT t_err('status_conta fora da lista', $q$UPDATE usuario SET status_conta = 'banido' WHERE id='bbbbbbbb-0000-0000-0000-000000000002'$q$);
+SELECT t_ok('conta suspensa e reativada', $q$UPDATE usuario SET status_conta = 'suspenso' WHERE id='bbbbbbbb-0000-0000-0000-000000000002'; UPDATE usuario SET status_conta = 'ativo' WHERE id='bbbbbbbb-0000-0000-0000-000000000002'$q$);
+SELECT t_err('estado antigo pendente não existe mais', $q$UPDATE usuario SET status_conta = 'pendente' WHERE id='bbbbbbbb-0000-0000-0000-000000000002'$q$);
+SELECT t_err('cota negativa', $q$UPDATE usuario SET cota_creditos = -1 WHERE id='bbbbbbbb-0000-0000-0000-000000000002'$q$);
+SELECT t_ok('cota 0 (sem IA) e volta ao padrão (nulo)', $q$UPDATE usuario SET cota_creditos = 0 WHERE id='bbbbbbbb-0000-0000-0000-000000000002'; UPDATE usuario SET cota_creditos = NULL WHERE id='bbbbbbbb-0000-0000-0000-000000000002'$q$);
 SELECT t_ok('gatilho renova atualizado_em da sessão', $q$UPDATE sessao SET revogado_em = now() WHERE id='20000001-0000-0000-0000-000000000001'$q$);
 
 -- 4b) dica e chat (V8)

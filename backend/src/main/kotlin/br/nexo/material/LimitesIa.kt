@@ -70,12 +70,19 @@ class LimitesIa(private val jdbc: JdbcTemplate, private val props: NexoPropertie
     )!!
 
     /**
+     * Cota semanal da conta: a definida pelo administrador para ela ou, se não houver, a padrão da aplicação. A tabela `usuario` não tem RLS, então a leitura é direta.
+     * @return créditos por semana (0 = sem IA).
+     */
+    private fun limite(): Int = jdbc.query("SELECT cota_creditos FROM usuario WHERE id = ?", { rs, _ -> rs.getObject(1) as Int? }, UsuarioAtual.id())
+        .firstOrNull() ?: props.cota.creditosPorSemana
+
+    /**
      * Uso de IA do usuário, para a tela.
      * @return créditos usados e limite, percentual, renovação e dados da proteção contra rajada.
      */
     fun uso(): Uso {
-        val usados = creditosDaSemana(); val limite = props.cota.creditosPorSemana
-        return Uso(usados, limite, (usados * 100L / limite).toInt().coerceIn(0, 100), renovaEm(), operacoesDaJanela().size, props.limiteOperacoesPorHora, props.janelaOperacoes.toMinutes(), props.prova.creditosPorQuestaoNova)
+        val usados = creditosDaSemana(); val limite = limite()
+        return Uso(usados, limite, if (limite == 0) 100 else (usados * 100L / limite).toInt().coerceIn(0, 100), renovaEm(), operacoesDaJanela().size, props.limiteOperacoesPorHora, props.janelaOperacoes.toMinutes(), props.prova.creditosPorQuestaoNova)
     }
 
     /** Lança 429 `limite_operacoes` (rajada) ou `limite_creditos` (cota da semana, com `esperaSegundos`) se o usuário já atingiu um dos limites. */
@@ -91,7 +98,9 @@ class LimitesIa(private val jdbc: JdbcTemplate, private val props: NexoPropertie
                 "limite_operacoes", mapOf("esperaSegundos" to espera),
             )
         }
-        if (creditosDaSemana() >= props.cota.creditosPorSemana) {
+        val limite = limite()
+        if (limite == 0) throw ErroNegocio(HttpStatus.TOO_MANY_REQUESTS, "Sua conta está sem cota de IA. Fale com o administrador.", "limite_creditos", mapOf("esperaSegundos" to Duration.between(relogio.instant(), renovaEm()).seconds.coerceAtLeast(1)))
+        if (creditosDaSemana() >= limite) {
             val renova = renovaEm()
             val quando = DateTimeFormatter.ofPattern("EEEE, dd/MM 'às' HH:mm", Locale.forLanguageTag("pt-BR")).withZone(props.fuso).format(renova)
             throw ErroNegocio(
@@ -109,7 +118,7 @@ class LimitesIa(private val jdbc: JdbcTemplate, private val props: NexoPropertie
      */
     fun exigirCreditos(necessarios: Int) {
         exigirDisponivel()
-        val restantes = (props.cota.creditosPorSemana - creditosDaSemana()).coerceAtLeast(0)
+        val restantes = (limite() - creditosDaSemana()).coerceAtLeast(0)
         if (necessarios > restantes) {
             val renova = renovaEm()
             val quando = DateTimeFormatter.ofPattern("EEEE, dd/MM 'às' HH:mm", Locale.forLanguageTag("pt-BR")).withZone(props.fuso).format(renova)

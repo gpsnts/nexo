@@ -1,0 +1,94 @@
+# Produção: sobreposição do docker-compose.yml. Use os dois arquivos juntos (o COMPOSE_FILE do .env já faz isso):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Exige Docker Compose 2.24 ou mais novo (marcação !reset).
+x-log: &log
+  driver: json-file
+  options: {max-size: "10m", max-file: "5"}  # sem rotação o disco da VPS enche
+
+services:
+  db:
+    ports: !reset []        # o banco só é alcançável pela rede interna do compose
+    restart: unless-stopped
+    logging: *log
+
+  migracao:
+    logging: *log
+
+  processamento:
+    restart: unless-stopped
+    logging: *log
+    healthcheck:  # a imagem não tem curl; o próprio Python consulta a rota de saúde
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/saude', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  backend:
+    ports: !reset []        # só o frontend (nginx) fala com o backend
+    restart: unless-stopped
+    logging: *log
+    environment:
+      NEXO_AMBIENTE: producao  # fixo: a aplicação recusa configuração de desenvolvimento
+      NEXO_LIMITE_PUBLICO_REQUISICOES: "20"
+      NEXO_ADMIN_EMAILS: ${NEXO_ADMIN_EMAILS:?defina no .env}
+      NEXO_CONTA_URL_FRONTEND: https://${NEXO_DOMINIO:?defina no .env}
+      NEXO_EMAIL_PROVEDOR: smtp
+      NEXO_EMAIL_REMETENTE: ${NEXO_EMAIL_REMETENTE:?defina no .env}
+      SPRING_MAIL_HOST: ${SMTP_HOST:?defina no .env}
+      SPRING_MAIL_PORT: ${SMTP_PORTA:-587}
+      SPRING_MAIL_USERNAME: ${SMTP_USUARIO:-}
+      SPRING_MAIL_PASSWORD: ${SMTP_SENHA:-}
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH: ${SMTP_AUTENTICAR:-true}
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE: ${SMTP_STARTTLS:-true}
+      SPRING_MAIL_PROPERTIES_MAIL_SMTP_SSL_ENABLE: ${SMTP_SSL:-false}  # true na porta 465 (TLS desde o início); nesse caso SMTP_STARTTLS=false
+    depends_on:
+      processamento: {condition: service_healthy}
+
+  frontend:
+    ports: !reset []        # entra só pelo Caddy
+    restart: unless-stopped
+    logging: *log
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Teste do envio de e-mail com as mesmas credenciais do backend. Não sobe com `up`; rode:
+  #   docker compose run --rm testar-smtp seu@email.com
+  testar-smtp:
+    profiles: ["ferramentas"]
+    build: ./servico-processamento
+    entrypoint: ["python", "/ferramentas/testar_smtp.py"]
+    environment:
+      SMTP_HOST: ${SMTP_HOST:?defina no .env}
+      SMTP_PORTA: ${SMTP_PORTA:-587}
+      SMTP_USUARIO: ${SMTP_USUARIO:-}
+      SMTP_SENHA: ${SMTP_SENHA:-}
+      SMTP_AUTENTICAR: ${SMTP_AUTENTICAR:-true}
+      SMTP_STARTTLS: ${SMTP_STARTTLS:-true}
+      SMTP_SSL: ${SMTP_SSL:-false}
+      NEXO_EMAIL_REMETENTE: ${NEXO_EMAIL_REMETENTE:?defina no .env}
+    volumes:
+      - ./scripts/testar_smtp.py:/ferramentas/testar_smtp.py:ro
+
+  # Porta de entrada: HTTPS automático (Let's Encrypt) e repasse ao nginx do frontend.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *log
+    environment:
+      NEXO_DOMINIO: ${NEXO_DOMINIO:?defina no .env}
+      NEXO_ACME_EMAIL: ${NEXO_ACME_EMAIL:?defina no .env}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data     # certificados emitidos: perder o volume força nova emissão
+      - caddy_config:/config
+    depends_on:
+      frontend: {condition: service_healthy}
+
+volumes:
+  caddy_data:
+  caddy_config:

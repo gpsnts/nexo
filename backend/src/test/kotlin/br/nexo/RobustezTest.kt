@@ -168,7 +168,10 @@ class RobustezTest : BaseIntegracao() {
         assertFailsWith<IllegalStateException> { GuardaDeAmbiente(prod).validar() }
         val ok = prod.copy(email = prod.email.copy(provedor = "smtp"), conta = prod.conta.copy(urlFrontend = "https://nexo.exemplo.br", assincrono = true), material = prod.material.copy(assincrono = true), geracao = prod.geracao.copy(assincrono = true))
         assertTrue(GuardaDeAmbiente(ok.copy(geracao = ok.geracao.copy(assincrono = false))).problemas().any { "geracao.assincrono" in it })
-        assertTrue(GuardaDeAmbiente(ok).problemas().isEmpty())
+        val senhaBoa = "uma-senha-longa-do-banco-1234"
+        assertTrue(GuardaDeAmbiente(ok, senhaBoa).problemas().isEmpty())
+        assertTrue(GuardaDeAmbiente(ok, "troque-app-1234567890").problemas().any { "senha do banco" in it })
+        assertTrue(GuardaDeAmbiente(ok, "curta").problemas().any { "senha do banco" in it })
         assertTrue(GuardaDeAmbiente(props.copy(ambiente = "desenvolvimento")).problemas().isEmpty())
     }
 
@@ -301,6 +304,26 @@ class RobustezTest : BaseIntegracao() {
             assertEquals("dono@x.com", msg.allRecipients.single().toString())
             assertEquals(props.email.remetente, msg.from.single().toString())
             assertTrue(msg.content.toString().contains("token=abc")) // content já vem decodificado (o corpo bruto usa quoted-printable: "=3D")
+        } finally {
+            greenMail.stop()
+        }
+    }
+
+    @Test
+    fun `o modelo de e-mail escapa o nome e o SMTP entrega texto e HTML na mesma mensagem`() {
+        val m = br.nexo.conta.ModeloEmail.montar("Título", "<script>x</script> & Ana", listOf("Corpo"), br.nexo.conta.BotaoEmail("Abrir", "http://localhost:3000/a?token=abc&x=1"), "Nota")
+        assertTrue("<script>" !in m.html && "&lt;script&gt;" in m.html && "token=abc&amp;x=1" in m.html)
+        assertTrue("http://localhost:3000/a?token=abc&x=1" in m.texto && "Olá, <script>x</script> & Ana." in m.texto)
+        val greenMail = GreenMail(ServerSetupTest.SMTP)
+        greenMail.start()
+        try {
+            val sender = JavaMailSenderImpl().apply { host = "127.0.0.1"; port = ServerSetupTest.SMTP.port }
+            EnviadorEmailSmtp(sender, props).enviar("dono@x.com", "Assunto com acentuação: ação", m)
+            assertTrue(greenMail.waitForIncomingEmail(5000, 1))
+            val msg = greenMail.receivedMessages.single()
+            assertEquals("Assunto com acentuação: ação", msg.subject)
+            val bruto = com.icegreen.greenmail.util.GreenMailUtil.getWholeMessage(msg)
+            assertTrue("multipart/alternative" in bruto && "text/plain" in bruto && "text/html" in bruto)
         } finally {
             greenMail.stop()
         }

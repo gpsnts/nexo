@@ -27,6 +27,8 @@ class Usuario(
     @field:Column(name = "falhas_login") var falhasLogin: Int = 0,
     @field:Column(name = "bloqueado_ate") var bloqueadoAte: Instant? = null,
     @field:Column(name = "email_verificado_em") var emailVerificadoEm: Instant? = null,
+    @field:Column(name = "status_conta") var statusConta: String = EstadoConta.ATIVO,
+    @field:Column(name = "cota_creditos") var cotaCreditos: Int? = null,
     @field:Column(name = "criado_em", insertable = false, updatable = false) val criadoEm: Instant? = null,
 )
 

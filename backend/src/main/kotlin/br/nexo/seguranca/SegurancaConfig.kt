@@ -48,10 +48,11 @@ class SegurancaConfig {
     /**
      * Rotas sem token. Todo o resto exige JWT; o teste de rotas confere isso.
      * @param http construtor de segurança HTTP.
-     * @return a cadeia de filtros (stateless, sem CSRF, JWT como servidor de recursos).
+     * @param jdbc acesso ao banco, usado pelo filtro que confere o estado da conta.
+     * @return a cadeia de filtros (stateless, sem CSRF, JWT como servidor de recursos, conta conferida a cada requisição).
      */
     @Bean
-    fun filtros(http: HttpSecurity): SecurityFilterChain = http
+    fun filtros(http: HttpSecurity, jdbc: org.springframework.jdbc.core.JdbcTemplate): SecurityFilterChain = http
         .csrf { it.disable() } // API stateless com token no cabeçalho; o cookie do refresh é SameSite=Strict e só vai às rotas /auth
         .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
         .authorizeHttpRequests {
@@ -62,5 +63,6 @@ class SegurancaConfig {
             ).permitAll().anyRequest().authenticated()
         }
         .oauth2ResourceServer { it.jwt { } }
+        .addFilterAfter(FiltroEstadoConta(jdbc), org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter::class.java)
         .build()
 }

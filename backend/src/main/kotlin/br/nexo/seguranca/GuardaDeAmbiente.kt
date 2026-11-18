@@ -2,11 +2,20 @@ package br.nexo.seguranca
 
 import br.nexo.NexoProperties
 import jakarta.annotation.PostConstruct
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 
-/** Em `nexo.ambiente=producao` a aplicação se recusa a subir com configuração que só serve para desenvolvimento. */
+/**
+ * Em `nexo.ambiente=producao` a aplicação se recusa a subir com configuração que só serve para desenvolvimento.
+ *
+ * @property props parâmetros da aplicação.
+ * @property senhaBanco senha com que o backend conecta ao banco (`spring.datasource.password`).
+ */
 @Component
-class GuardaDeAmbiente(private val props: NexoProperties) {
+class GuardaDeAmbiente(
+    private val props: NexoProperties,
+    @Value("\${spring.datasource.password:}") private val senhaBanco: String = "",
+) {
     /**
      * Lista as configurações inseguras para produção.
      * @return mensagens dos problemas; vazia fora de produção ou se tudo estiver certo.
@@ -23,6 +32,7 @@ class GuardaDeAmbiente(private val props: NexoProperties) {
             "nexo.processamento.segredo com menos de 24 caracteres".takeIf { props.processamento.segredo.length < 24 },
             // Os valores de exemplo do .env.example começam com "troque": copiar o arquivo sem trocar os segredos não pode ir a produção.
             "segredo do JWT ou interno ainda é o valor de exemplo do .env.example".takeIf { props.jwt.segredo.startsWith("troque") || props.processamento.segredo.startsWith("troque") },
+            "senha do banco do backend com menos de 16 caracteres ou ainda é o valor de exemplo".takeIf { senhaBanco.length < 16 || senhaBanco.startsWith("troque") },
         )
     }
 

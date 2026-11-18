@@ -554,3 +554,14 @@ button.pequeno { padding: .35rem .8rem; font-size: .85rem; }
 /* alvos de toque de pelo menos 40 px no celular (os botões de tema ficam menores de propósito, para o cabeçalho caber) */
 @media (max-width: 34rem) { .sair { min-width: 2.5rem; min-height: 2.5rem; justify-content: center; } .chip, .indice a { min-height: 2.5rem; display: inline-flex; align-items: center; } }
 .form-prova fieldset > .campo { margin-top: .9rem; }
+
+/* Painel de administração */
+.usuarios-admin { list-style: none; padding: 0; margin: 0; display: grid; gap: .8rem; }
+.usuario-admin { display: grid; gap: .7rem; border: 1px solid var(--borda); border-radius: 1.25rem; padding: 1rem 1.2rem; background: var(--cartao); }
+.usuario-admin header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .4rem 1rem; }
+.usuario-admin small { display: block; color: var(--suave); }
+.usuario-admin .uso { display: grid; gap: .25rem; max-width: 24rem; font-size: .88rem; color: var(--suave); }
+.usuario-admin .acoes { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: .5rem; align-items: end; }
+.usuario-admin .acoes form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; }
+.usuario-admin .acoes label { display: grid; gap: .2rem; font-size: .85rem; color: var(--suave); }
+.usuario-admin .acoes input { width: 9rem; }

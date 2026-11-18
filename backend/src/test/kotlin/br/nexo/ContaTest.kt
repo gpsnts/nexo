@@ -222,7 +222,7 @@ class ContaTest : BaseIntegracao() {
             assertEquals(0, dono.queryForObject("SELECT count(*) FROM ${tabela.first} WHERE ${tabela.second} = ?", Int::class.java, idA), tabela.first)
         // o JWT de A ainda não expirou, mas não leva a nada
         assertEquals(401, chamar("GET", "/perfil", token = token(a)).status)
-        assertEquals(0, chamar("GET", "/assuntos", token = token(a)).corpo.size())
+        assertEquals(401, chamar("GET", "/assuntos", token = token(a)).status) // a conta não existe mais: o filtro de estado recusa em vez de devolver lista vazia
         assertEquals(401, chamar("POST", "/auth/refresh", cookie = cookieA).status)
         assertEquals(401, login(emailA).status)
         // B intacto

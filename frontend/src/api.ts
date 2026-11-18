@@ -13,8 +13,8 @@ export class ErroApi extends Error {
   }
 }
 
-/** Sessão devolvida no login e no refresh: token de acesso e nome do usuário. */
-export type Sessao = { token: string; nome: string }
+/** Sessão devolvida no login e no refresh: token de acesso, nome do usuário e se é administrador. */
+export type Sessao = { token: string; nome: string; admin?: boolean }
 
 // Token de acesso só em memória. O refresh token vive em cookie HttpOnly, que o JavaScript não lê.
 let token: string | null = null
@@ -23,6 +23,25 @@ let token: string | null = null
  * @param t token, ou nulo para limpar.
  */
 export const definirToken = (t: string | null) => { token = t }
+
+let administrador = false
+/**
+ * Guarda se a conta logada é de administrador (mostra o painel no menu). Só enfeite da interface: quem decide é o servidor.
+ * @param a verdadeiro para administrador.
+ */
+export const definirAdmin = (a: boolean) => { administrador = a }
+/**
+ * Diz se a conta logada é de administrador.
+ * @returns verdadeiro para administrador.
+ */
+export const ehAdmin = () => administrador
+
+/**
+ * Mensagem a mostrar quando o servidor cortou o acesso da conta (suspensa); sem ela, a tela diz só que a sessão expirou.
+ * @param e erro da tentativa de renovar a sessão.
+ * @returns a mensagem do servidor se a conta foi suspensa; nada nos demais casos.
+ */
+export const motivoDoCorte = (e: unknown) => (e instanceof ErroApi && e.codigo === 'conta_suspensa' ? e.message : undefined)
 
 let renovando: Promise<Sessao> | null = null
 
@@ -72,14 +91,16 @@ export async function api<T>(caminho: string, opcoes: { metodo?: string; corpo?:
     try {
       await renovarSessao()
       r = await enviar(caminho, metodo, opcoes.corpo, opcoes.formulario)
-    } catch {
+    } catch (e) {
       token = null
-      aoPerderSessao()
+      aoPerderSessao(motivoDoCorte(e))
     }
   }
   const dados = r.status === 204 ? null : await r.json().catch(() => null)
   // 413 do nginx vem em HTML (sem mensagem): é o limite de corpo do envio de material.
   const padrao = r.status === 413 ? 'O arquivo é grande demais.' : 'Não foi possível concluir. Tente novamente.'
+  // Conta suspensa com a sessão aberta: o servidor corta na hora; volta ao login explicando.
+  if (r.status === 403 && token && dados?.codigo === 'conta_suspensa') { token = null; aoPerderSessao(dados.mensagem) }
   if (!r.ok) throw new ErroApi(r.status, dados?.mensagem ?? padrao, dados?.codigo, dados?.esperaSegundos, dados ?? undefined)
   return dados as T
 }
@@ -93,7 +114,7 @@ export async function api<T>(caminho: string, opcoes: { metodo?: string; corpo?:
 export async function baixar(caminho: string): Promise<Blob> {
   let r = await enviar(caminho, 'GET', undefined)
   if (r.status === 401 && token) {
-    try { await renovarSessao(); r = await enviar(caminho, 'GET', undefined) } catch { token = null; aoPerderSessao() }
+    try { await renovarSessao(); r = await enviar(caminho, 'GET', undefined) } catch (e) { token = null; aoPerderSessao(motivoDoCorte(e)) }
   }
   if (!r.ok) {
     const dados = await r.json().catch(() => null)
@@ -102,9 +123,9 @@ export async function baixar(caminho: string): Promise<Blob> {
   return r.blob()
 }
 
-let aoPerderSessao: () => void = () => {}
+let aoPerderSessao: (motivo?: string) => void = () => {}
 /**
- * Registra o que fazer quando a sessão não puder ser renovada.
- * @param f função chamada ao perder a sessão.
+ * Registra o que fazer quando a sessão não puder ser renovada ou o servidor cortar o acesso da conta.
+ * @param f função chamada ao perder a sessão, com a mensagem do servidor quando houver.
  */
-export const quandoPerderSessao = (f: () => void) => { aoPerderSessao = f }
+export const quandoPerderSessao = (f: (motivo?: string) => void) => { aoPerderSessao = f }

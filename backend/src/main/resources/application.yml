@@ -128,6 +128,8 @@ nexo:
   seguranca:
     hash-concorrencia: 4                  # hashes Argon2 simultâneos (cada um usa ~16 MiB)
     hash-espera: PT5S
+  admin:
+    emails: ${NEXO_ADMIN_EMAILS:}          # e-mails dos administradores, separados por vírgula
   email:
     provedor: falso                       # falso (registra o link no log) | smtp (spring.mail.*)
     remetente: nao-responda@nexo.local

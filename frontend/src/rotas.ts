@@ -9,7 +9,7 @@ export function irPara(caminho: string) {
   window.dispatchEvent(new Event(EVENTO_ROTA))
 }
 /** Nome de uma tela do frontend, derivado da URL. */
-export type NomeRota = 'inicio' | 'perfil' | 'novo' | 'material' | 'topico' | 'pasta' | 'prova' | 'provas' | 'revisar' | 'historico' | 'desempenho' | 'entrar' | 'criar' | 'recuperar' | 'redefinir' | 'confirmar' | 'verificar' | 'desconhecida'
+export type NomeRota = 'inicio' | 'perfil' | 'novo' | 'material' | 'topico' | 'pasta' | 'prova' | 'provas' | 'revisar' | 'historico' | 'desempenho' | 'admin' | 'entrar' | 'criar' | 'recuperar' | 'redefinir' | 'confirmar' | 'verificar' | 'desconhecida'
 
 const CAMINHOS: Record<Exclude<NomeRota, 'desconhecida' | 'material' | 'topico' | 'pasta' | 'prova'>, string> = {
   inicio: '/',
@@ -19,6 +19,7 @@ const CAMINHOS: Record<Exclude<NomeRota, 'desconhecida' | 'material' | 'topico' 
   provas: '/provas',
   historico: '/historico',
   desempenho: '/desempenho',
+  admin: '/admin',
   entrar: '/entrar',
   criar: '/criar-conta',
   recuperar: '/recuperar-senha',
@@ -107,7 +108,7 @@ export const ehEntrada = (n: NomeRota) => n === 'entrar' || n === 'criar' || n =
  * @param n nome da rota.
  * @returns verdadeiro para as telas internas.
  */
-export const ehInterna = (n: NomeRota) => n === 'inicio' || n === 'perfil' || n === 'novo' || n === 'revisar' || n === 'historico' || n === 'desempenho' || n === 'material' || n === 'topico' || n === 'pasta' || n === 'prova' || n === 'provas'
+export const ehInterna = (n: NomeRota) => n === 'inicio' || n === 'perfil' || n === 'novo' || n === 'revisar' || n === 'historico' || n === 'desempenho' || n === 'admin' || n === 'material' || n === 'topico' || n === 'pasta' || n === 'prova' || n === 'provas'
 
 /**
  * Descobre a tela de um caminho.

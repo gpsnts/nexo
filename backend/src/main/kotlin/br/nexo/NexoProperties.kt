@@ -33,6 +33,7 @@ data class NexoProperties(
     val email: Email,
     val limitePublico: LimitePublico,
     val seguranca: Seguranca,
+    val admin: Admin,
 ) {
     /**
      * US$ por milhão de tokens do embedding: a tabela por modelo e, na falta dele, o preço único do `.env` (modelo trocado sem editar o application.yml).
@@ -133,6 +134,16 @@ data class NexoProperties(
 
     /** [hashConcorrencia] limita quantos hashes Argon2 (16 MiB cada) rodam ao mesmo tempo; o excedente espera até [hashEspera] e depois recebe 503. */
     data class Seguranca(val hashConcorrencia: Int, val hashEspera: Duration)
+
+    /** Contas administradoras: e-mails (comparados em minúsculas) que ganham o painel de administração. */
+    data class Admin(val emails: List<String>) {
+        /**
+         * Diz se o e-mail é de um administrador.
+         * @param email e-mail da conta, já em minúsculas.
+         * @return verdadeiro se estiver na lista configurada.
+         */
+        fun ehAdmin(email: String): Boolean = emails.any { it.trim().lowercase() == email }
+    }
 
     /** Provedor de e-mail e remetente (`falso` em desenvolvimento). */
     data class Email(val provedor: String, val remetente: String)

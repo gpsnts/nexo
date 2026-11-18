@@ -59,6 +59,7 @@ services:
       NEXO_MATERIAL_DIRETORIO: /dados/arquivos
       NEXO_JWT_SEGREDO: ${NEXO_JWT_SEGREDO:?defina no .env}
       NEXO_AMBIENTE: ${NEXO_AMBIENTE:-desenvolvimento}
+      NEXO_ADMIN_EMAILS: ${NEXO_ADMIN_EMAILS:-}  # e-mails dos administradores (painel /admin), separados por vírgula
       NEXO_LIMITE_PUBLICO_REQUISICOES: ${NEXO_LIMITE_PUBLICO_REQUISICOES:-20}  # só os testes E2E (cadastram dezenas de contas por minuto) sobem isto
     volumes: [arquivos:/dados/arquivos]  # arquivos enviados; só o backend monta
     ports: ["127.0.0.1:8080:8080"]  # só a máquina local; o acesso externo passa pelo frontend (nginx)
