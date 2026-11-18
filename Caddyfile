@@ -13,3 +13,8 @@
 	# O Caddy troca o X-Forwarded-For pelo IP real de quem chegou: o cliente não consegue forjá-lo.
 	reverse_proxy frontend:80
 }
+
+# O endereço com www leva ao principal (o DNS já aponta os dois para o servidor).
+www.{$NEXO_DOMINIO} {
+	redir https://{$NEXO_DOMINIO}{uri} permanent
+}

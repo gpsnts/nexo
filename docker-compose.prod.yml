@@ -31,6 +31,7 @@ services:
     environment:
       NEXO_AMBIENTE: producao  # fixo: a aplicação recusa configuração de desenvolvimento
       NEXO_LIMITE_PUBLICO_REQUISICOES: "20"
+      MANAGEMENT_HEALTH_MAIL_ENABLED: "false"  # a checagem de saúde não depende do servidor de e-mail (uma falha dele só aparece no log)
       NEXO_ADMIN_EMAILS: ${NEXO_ADMIN_EMAILS:?defina no .env}
       NEXO_CONTA_URL_FRONTEND: https://${NEXO_DOMINIO:?defina no .env}
       NEXO_EMAIL_PROVEDOR: smtp

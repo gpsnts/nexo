@@ -16,6 +16,7 @@ spring:
   flyway.enabled: false  # migrações rodam no serviço "migracao" do compose, com o papel dono
 
 management.endpoints.web.exposure.include: health
+management.health.mail.enabled: false  # o envio de e-mail roda em segundo plano e falha só no log: servidor SMTP fora do ar não pode derrubar a aplicação inteira
 
 server.forward-headers-strategy: native  # IP real do cliente vem do X-Forwarded-For do nginx
 
