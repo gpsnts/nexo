@@ -4,6 +4,42 @@ Tutor de estudo guiado com IA. O estudante envia um material próprio (PDF, DOCX
 
 Projeto de TCC (ULBRA, Análise e Desenvolvimento de Sistemas). Sistema publicado: **https://nexoapp.blog**.
 
+## Orientações para análise do código
+
+### Roteiro sugerido
+
+1. Abra **https://nexoapp.blog** e entre com o usuário e a senha de teste informados no documento da etapa (ou crie uma conta em *Criar conta*; o sistema envia um e-mail de confirmação).
+2. Em *Novo estudo*, envie um PDF, DOCX ou TXT curto (até 20 MB e 50 páginas) ou informe um tópico livre; acompanhe a barra de andamento e revise os tópicos propostos.
+3. Em um tópico, gere o **resumo** e as **questões**; responda e explore *Revisar* (repetição espaçada), *Provas* (prova por escopo) e *Desempenho*. Em *Perfil* ficam a exportação dos dados, as sessões e a exclusão da conta.
+
+O conteúdo enviado é processado por um provedor externo de IA: use material sem dados pessoais ou confidenciais. Cada conta tem uma cota semanal de uso de IA (barra "Uso de IA" no menu).
+
+### Script de criação do banco
+
+O banco é criado pelas migrações `db/migrations/V1` a `V15` (Flyway), aplicadas em ordem pelo serviço `migracao` do `docker compose` ao subir o ambiente, com o papel dono. A `V1` cria o esquema, as extensões (`vector` e `btree_gist`) e as políticas de isolamento por conta (Row-Level Security); `db/callbacks/afterMigrate.sql` liga o login do papel `nexo_app`, o único que o backend usa. `db/validacao/verificar_esquema.sql` valida o resultado (126 verificações; precisa de um banco vazio, recém-migrado). Para aplicar à mão em um PostgreSQL 16 com pgvector, rode os arquivos `V1` a `V15` em ordem e defina a senha do papel com `ALTER ROLE nexo_app LOGIN PASSWORD '...'`.
+
+### Por onde começar a leitura
+
+Sugestão: `db/migrations/V1__esquema_inicial.sql` → `backend/` → `servico-processamento/` → `frontend/`.
+
+| Tema | Onde olhar |
+|---|---|
+| Isolamento por conta (RLS) | `db/migrations/V1__esquema_inicial.sql`, `backend/src/main/kotlin/br/nexo/seguranca/TransacaoComRls.kt` (define o usuário em cada transação), `IsolamentoTest.kt` |
+| Autenticação (cadastro, login, refresh rotativo, bloqueio, recuperação de senha) | `backend/.../conta/AuthService.kt`, `ContaService.kt`, `PoliticaSenha.kt`, `seguranca/JwtService.kt`, `SegurancaConfig.kt` |
+| Indexação do material (texto, tabelas e figuras) e divisão em tópicos | `servico-processamento/nexo_processamento/extracao.py`, `divisao.py`, `figuras.py`; `backend/.../material/Indexador.kt` |
+| Busca vetorial exata, filtrada por material e por faixa de trechos | `backend/.../material/ConteudoBase.kt`, `GeracaoDados.kt` |
+| Resumo, questões, verificação de fidelidade e descarte de questões repetidas | `backend/.../material/Geracao.kt`; `servico-processamento/nexo_processamento/geracao.py` |
+| Modelo de linguagem e de embedding (interfaces separadas e trocáveis) | `servico-processamento/nexo_processamento/ia/` |
+| Repetição espaçada (SM-2 adaptado a certo e errado) | `backend/.../estudo/Agendamento.kt`, `AgendamentoTest.kt` |
+| Provas por escopo | `backend/.../estudo/Provas.kt`, `MontagemProvas.kt` |
+| Desempenho, histórico, pastas, tutor, exportação de dados | `backend/.../estudo/Estudo.kt`, `Organizacao.kt`, `Tutor.kt`, `Exportacao.kt` |
+| Limites de uso de IA (por hora e cota semanal em créditos) | `backend/.../material/LimitesIa.kt`, `PrecosIa.kt` |
+| Painel de administração (suspender, cota por conta, excluir) | `backend/.../admin/`, `seguranca/FiltroEstadoConta.kt`, `frontend/src/Admin.tsx`, `AdminTest.kt` |
+| Parâmetros de negócio (nada fixo no código) | `backend/src/main/resources/application.yml` (bloco `nexo:`), `NexoProperties.kt` |
+| Interface | `frontend/src/` (`App.tsx` roteia as telas; uma tela por arquivo) |
+
+Todo código de produção tem documentação em cada função, método, classe e tipo (KDoc, JSDoc e docstrings), explicando o que faz, as entradas e a saída.
+
 ## O que está implementado
 
 - **Conta:** cadastro com confirmação por e-mail, login com JWT de curta duração e refresh rotativo em cookie, bloqueio após falhas, recuperação de senha, perfil, sessões ativas por dispositivo, exportação dos dados e exclusão da conta.
