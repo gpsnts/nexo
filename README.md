@@ -11,7 +11,7 @@ Projeto de TCC (ULBRA, Análise e Desenvolvimento de Sistemas). Sistema publicad
 - **Estudo:** resumo e questões por tópico (com verificação de fidelidade, descarte de questões repetidas por similaridade e cancelamento), dica e chat com o tutor, revisão por repetição espaçada (SM-2 adaptado a certo e errado), provas por escopo (inclusive com questões novas geradas na hora) e painel semanal de desempenho.
 - **Controle de uso de IA:** cota semanal por conta, em créditos (a tela mostra só a porcentagem e quando renova), mais um limite por hora como proteção.
 - **Administração:** painel `/admin` para quem tem o e-mail em `NEXO_ADMIN_EMAILS`: suspender e reativar contas (o corte é imediato), ajustar a cota de cada conta e excluir contas. O administrador vê só cadastro e consumo, nunca o conteúdo dos estudos. O cadastro continua aberto e imediato.
-- **Operação:** ambiente de produção com HTTPS automático, backup do banco com teste de restauração, ferramenta de teste do envio de e-mail e e-mails da conta em HTML.
+- **Operação:** ambiente de produção com HTTPS automático (Caddy), procedimento de backup e restauração do banco e dos arquivos, e e-mails da conta em HTML e texto.
 
 ## Arquitetura
 
@@ -22,7 +22,7 @@ Três serviços e um banco, em um repositório:
 - `frontend/`: React + Vite + TypeScript, responsivo (celular, tablet e desktop).
 - `db/`: PostgreSQL 16+ com pgvector, migrações Flyway (`V1` a `V15`) e o validador do esquema.
 - `e2e/`: testes de ponta a ponta em navegador (Playwright) contra o `docker compose`.
-- `docker-compose.yml` (desenvolvimento) e `docker-compose.prod.yml` + `Caddyfile` (produção), `scripts/` (backup e teste de e-mail).
+- `docker-compose.yml` (desenvolvimento) e `docker-compose.prod.yml` + `Caddyfile` (produção).
 
 O isolamento entre contas é feito no próprio banco (Row-Level Security): o backend conecta com um papel sem privilégio de dono e informa o usuário em cada transação. A busca por similaridade é exata (sem índice aproximado), sempre filtrada por material e tópico. O modelo de linguagem e o de embedding são duas interfaces separadas e trocáveis; o nome do modelo é gravado nos registros.
 
@@ -98,21 +98,48 @@ Para gerar resumos, questões e divisões em tópicos, o sistema **envia trechos
 
 O arquivo `docker-compose.prod.yml` é uma sobreposição do `docker-compose.yml`: com `COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml` no `.env`, todo comando `docker compose` usa os dois. Em produção só o Caddy publica portas (80 e 443): o banco, o backend e o serviço de processamento ficam na rede interna, com reinício automático e verificação de saúde. A aplicação recusa subir com configuração só de desenvolvimento (`NEXO_AMBIENTE=producao`: e-mail simulado, cookie sem `Secure`, endereço sem HTTPS ou segredos de exemplo).
 
-```bash
-git clone https://github.com/gpsnts/nexo.git && cd nexo
-cp env.producao.exemplo .env && chmod 600 .env    # preencha o .env no servidor (segredos nunca vão para o repositório)
-docker compose up -d --build
-docker compose ps                                  # todos saudáveis; "migracao" termina e sai
-```
-
 Requisitos: Docker Engine com Compose 2.24 ou mais novo, um domínio apontando para o servidor (registro A) e as portas 80 e 443 liberadas.
 
-- **`.env` de produção:** `env.producao.exemplo` lista todas as variáveis e como gerar cada segredo (`openssl rand -base64 48 | tr -d '/+=\n'`). Obrigatórios: `NEXO_DOMINIO`, `NEXO_ACME_EMAIL`, `NEXO_ADMIN_EMAILS`, as senhas do banco, `NEXO_JWT_SEGREDO`, `NEXO_PROCESSAMENTO_SEGREDO` e os dados do SMTP.
-- **E-mail:** use um serviço de envio com SMTP (não monte servidor próprio) e autentique o domínio (SPF/DKIM/DMARC). Teste com as mesmas credenciais do backend: `docker compose run --rm testar-smtp seu@email.com` (mostra conexão, criptografia, login e envio, sem exibir a senha).
-- **Backup:** `scripts/backup.sh` (dump do banco, arquivos enviados e contagem de linhas por tabela, em `~/nexo-backups`), `scripts/testar-backup.sh` (restaura em um banco descartável e compara as tabelas) e `scripts/restaurar.sh` (restauração real, com confirmação digitada). Agende no `crontab` (por exemplo, o backup às 3h e o teste de restauração aos domingos) e **copie os backups para fora do servidor**.
-- **Atualizar:** `scripts/backup.sh`, `git pull` e `docker compose up -d --build`. As migrações do banco rodam sozinhas no serviço `migracao`.
-- **Trocar um segredo:** edite o `.env` e recrie o serviço (`docker compose up -d backend`). Trocar `NEXO_JWT_SEGREDO` encerra todas as sessões; a senha do papel `nexo_app` exige rodar `docker compose run --rm migracao` antes de reiniciar o backend.
+```bash
+git clone https://github.com/gpsnts/nexo.git && cd nexo
+# crie o .env do servidor (veja abaixo), com permissão restrita:
+chmod 600 .env
+docker compose up -d --build
+docker compose ps        # todos saudáveis; "migracao" termina e sai
+```
+
+**`.env` de produção** (fica só no servidor; segredos nunca vão para o repositório). Gere cada segredo com `openssl rand -base64 48 | tr -d '/+=\n'`, um valor diferente em cada campo:
+
+```
+COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+NEXO_DOMINIO=seudominio.com.br          # sem https:// e sem barra
+NEXO_ACME_EMAIL=voce@exemplo.com        # avisos do certificado HTTPS (precisa ser um e-mail real)
+NEXO_ADMIN_EMAILS=voce@exemplo.com      # quem ganha o painel /admin (separe vários por vírgula)
+POSTGRES_PASSWORD=...                   # dono do banco (só migrações e backup)
+NEXO_APP_SENHA=...                      # papel que o backend usa (mínimo 16 caracteres)
+NEXO_JWT_SEGREDO=...                    # mínimo 32 caracteres; trocar encerra todas as sessões
+NEXO_PROCESSAMENTO_SEGREDO=...          # compartilhado entre o backend e o serviço de processamento
+NEXO_EMAIL_REMETENTE=nao-responda@seudominio.com.br   # remetente verificado no serviço de e-mail
+SMTP_HOST=smtp.seu-provedor.com
+SMTP_PORTA=587                          # 587 (STARTTLS) ou 465 (TLS direto: SMTP_SSL=true e SMTP_STARTTLS=false)
+SMTP_USUARIO=...
+SMTP_SENHA=...
+MODELO_EMBEDDING_PROVEDOR=openai
+MODELO_LINGUAGEM_PROVEDOR=openai
+OPENAI_API_KEY=...                      # veja "Provedores de IA"; precisa também do nome do modelo e dos preços
+```
+
+- **E-mail:** use um serviço de envio com SMTP (não monte servidor próprio: provedores de VPS costumam bloquear a porta 25 e e-mail de IP novo cai em spam) e autentique o domínio (SPF/DKIM/DMARC). Depois de subir, faça um cadastro e confira que o e-mail de confirmação chega; falhas de envio aparecem no log do backend (`docker compose logs backend`).
+- **Backup** (rode a partir da pasta do projeto, no servidor):
+  ```bash
+  mkdir -p ~/nexo-backups/$(date +%F)
+  docker compose exec -T db pg_dump -U nexo_dono -d nexo -Fc > ~/nexo-backups/$(date +%F)/banco.dump
+  docker compose exec -T backend tar -C /dados -czf - arquivos > ~/nexo-backups/$(date +%F)/arquivos.tar.gz
+  ```
+  Agende no `crontab` (por exemplo, todo dia às 3h) e **copie os backups para fora do servidor**. Um backup que nunca foi restaurado não conta: teste restaurando o `banco.dump` em um PostgreSQL descartável (`pg_restore -d nexo --exit-on-error`, depois de criar o papel `nexo_app` e as extensões `vector` e `btree_gist`).
+- **Atualizar:** faça um backup, depois `git pull` e `docker compose up -d --build`. As migrações do banco rodam sozinhas no serviço `migracao`.
+- **Trocar um segredo:** edite o `.env` e recrie o serviço (`docker compose up -d backend`). Trocar `NEXO_JWT_SEGREDO` encerra todas as sessões; a senha do papel `nexo_app` exige rodar `docker compose run --rm migracao` antes de reiniciar o backend. Não use `docker compose down -v` em produção: apagaria o banco, os arquivos enviados e os certificados.
 - **Rede lenta no servidor** (o build falha com `connection timed out`): construa as imagens na sua máquina (`docker compose build`), exporte com `docker save`, envie com `rsync --partial --append-verify` e carregue no servidor com `docker load` antes de `docker compose up -d --no-build --pull never`.
 - **Ensaio local da produção:** `docker-compose.ensaio.yml` acrescenta um servidor de e-mail local (Mailpit) e roda com `localhost` no lugar do domínio. Use sempre um projeto Compose separado (`-p nexo-ensaio`) e um arquivo de variáveis fora do repositório, para não tocar no banco de desenvolvimento.
 
-O arquivo `.env` do servidor é a única fonte de segredos; o backend conecta ao banco com o papel `nexo_app` e o serviço de processamento nunca recebe credenciais do banco.
+O backend conecta ao banco com o papel `nexo_app` (sem privilégio de dono), e o serviço de processamento nunca recebe credenciais do banco.
