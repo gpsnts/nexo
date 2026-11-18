@@ -1,38 +1,44 @@
 # Plataforma Nexo
 
-Tutor de estudo guiado com IA. O estudante envia um material próprio (PDF, DOCX ou TXT) ou informa um tópico livre; o sistema gera **resumos e questões fiéis ao material**, verifica a fidelidade de cada questão antes de guardá-la, agenda revisões por repetição espaçada, permite escolher quais tópicos revisar e mostra a evolução do desempenho.
+Tutor de estudo guiado com IA. O estudante envia um material próprio (PDF, DOCX ou TXT) ou informa um tópico livre; o sistema divide o conteúdo em tópicos, gera **resumos e questões fiéis ao material**, verifica a fidelidade de cada questão antes de guardá-la, agenda revisões por repetição espaçada, monta provas por escopo ("estudei até este tópico") e mostra a evolução do desempenho.
 
-Projeto de TCC (ULBRA, Análise e Desenvolvimento de Sistemas)
+Projeto de TCC (ULBRA, Análise e Desenvolvimento de Sistemas). Sistema publicado: **https://nexoapp.blog**.
 
-## Estado atual
+## O que está implementado
 
-Implementados: cadastro e login (JWT com refresh), perfil e sessões, isolamento por conta (RLS), envio e indexação de material com barra de progresso, divisão em tópicos, tópicos livres com orientações opcionais, resumo, questões e verificação de fidelidade, dica e chat com o tutor, revisão por repetição espaçada, painel de desempenho, pastas e cota semanal de uso de IA. Montagem de provas e extensões finais ainda não estão prontas.
-
-O modelo de linguagem real (OpenAI) ainda **não** está integrado: por padrão o serviço usa um provedor falso que devolve conteúdo de demonstração, o suficiente para ver o fluxo inteiro funcionando.
+- **Conta:** cadastro com confirmação por e-mail, login com JWT de curta duração e refresh rotativo em cookie, bloqueio após falhas, recuperação de senha, perfil, sessões ativas por dispositivo, exportação dos dados e exclusão da conta.
+- **Material:** envio de PDF, DOCX e TXT (até 20 MB e 50 páginas) com barra de andamento; extração de texto, **tabelas** (em Markdown) e **figuras** (descritas por um modelo de linguagem com visão); divisão em tópicos revisável; tópico livre com orientações opcionais; pastas, histórico e exclusão de material.
+- **Estudo:** resumo e questões por tópico (com verificação de fidelidade, descarte de questões repetidas por similaridade e cancelamento), dica e chat com o tutor, revisão por repetição espaçada (SM-2 adaptado a certo e errado), provas por escopo (inclusive com questões novas geradas na hora) e painel semanal de desempenho.
+- **Controle de uso de IA:** cota semanal por conta, em créditos (a tela mostra só a porcentagem e quando renova), mais um limite por hora como proteção.
+- **Administração:** painel `/admin` para quem tem o e-mail em `NEXO_ADMIN_EMAILS`: suspender e reativar contas (o corte é imediato), ajustar a cota de cada conta e excluir contas. O administrador vê só cadastro e consumo, nunca o conteúdo dos estudos. O cadastro continua aberto e imediato.
+- **Operação:** ambiente de produção com HTTPS automático, backup do banco com teste de restauração, ferramenta de teste do envio de e-mail e e-mails da conta em HTML.
 
 ## Arquitetura
 
 Três serviços e um banco, em um repositório:
 
 - `backend/`: Kotlin + Spring Boot. API, autenticação, regras de negócio. **É o único que lê e grava no banco.**
-- `servico-processamento/`: Python (FastAPI). Extrai texto, divide em trechos, gera embeddings e chama o modelo de linguagem. Não acessa o banco.
-- `frontend/`: React + Vite, responsivo (celular, tablet e desktop).
-- `db/`: PostgreSQL 16+ com pgvector, migrações Flyway (`V1` a `V7`) e o validador do esquema.
+- `servico-processamento/`: Python (FastAPI). Extrai texto, tabelas e figuras, divide em trechos, gera embeddings e chama o modelo de linguagem. **Não acessa o banco.**
+- `frontend/`: React + Vite + TypeScript, responsivo (celular, tablet e desktop).
+- `db/`: PostgreSQL 16+ com pgvector, migrações Flyway (`V1` a `V15`) e o validador do esquema.
 - `e2e/`: testes de ponta a ponta em navegador (Playwright) contra o `docker compose`.
+- `docker-compose.yml` (desenvolvimento) e `docker-compose.prod.yml` + `Caddyfile` (produção), `scripts/` (backup e teste de e-mail).
 
-O isolamento entre contas é feito no próprio banco (Row-Level Security): o backend conecta com um papel sem privilégio de dono e informa o usuário em cada transação.
+O isolamento entre contas é feito no próprio banco (Row-Level Security): o backend conecta com um papel sem privilégio de dono e informa o usuário em cada transação. A busca por similaridade é exata (sem índice aproximado), sempre filtrada por material e tópico. O modelo de linguagem e o de embedding são duas interfaces separadas e trocáveis; o nome do modelo é gravado nos registros.
 
-## Como rodar
+## Como rodar (desenvolvimento)
 
 Requisitos: Docker e Docker Compose.
 
 ```bash
-cp .env.example .env        # ajuste os segredos; o padrão é ambiente de desenvolvimento com provedores falsos
+cp .env.example .env        # o padrão é ambiente de desenvolvimento, com e-mail e IA simulados
 docker compose up -d --build --quiet-pull
 ```
 
 - Aplicação: http://localhost:3000 (o `/api` é encaminhado ao backend).
-- Em desenvolvimento o e-mail é "falso": os links de confirmação saem no log (`docker compose logs backend | grep token=`).
+- O e-mail é simulado: o link de confirmação sai no log do backend (`docker compose logs backend | grep -o 'verificar-email?token=[A-Za-z0-9_-]*' | tail -1`; abra `http://localhost:3000/` seguido do trecho impresso).
+- A IA é simulada: o serviço devolve conteúdo de demonstração, o suficiente para ver o fluxo inteiro sem chave de API.
+- Para ver o painel de administração, ponha seu e-mail em `NEXO_ADMIN_EMAILS` no `.env` antes de subir e cadastre-se com ele.
 - Recomeçar do zero (apaga o banco): `docker compose down -v`.
 
 ## Testes
@@ -42,65 +48,71 @@ cd backend && ./gradlew test -q                                    # precisa de 
 cd servico-processamento && python3 -m venv .venv && .venv/bin/pip install -q -e '.[dev]' && .venv/bin/pytest -q
 cd frontend && npm ci && npm test -- --run && npm run build
 # esquema do banco (banco vazio, recém-migrado)
-docker compose exec -T db psql -U nexo_dono -d nexo -v ON_ERROR_STOP=1 < db/validacao/verificar_esquema.sql | grep -c PASS   # 62
+docker compose exec -T db psql -U nexo_dono -d nexo -v ON_ERROR_STOP=1 < db/validacao/verificar_esquema.sql | grep -c PASS   # 126
 # ponta a ponta (compose no ar; o limite por IP das rotas públicas precisa estar alto)
 NEXO_LIMITE_PUBLICO_REQUISICOES=100000 docker compose up -d
-cd e2e && npm ci && npx playwright install chromium firefox && npx playwright test
+cd e2e && npm ci && npx playwright install chromium && npx playwright test
 ```
 
-O CI (`.github/workflows/ci.yml`) roda tudo isso. Os E2E rodam em Chrome, Firefox e perfil de celular; localmente só o Chrome e o celular foram executados até agora.
-
-## Privacidade
-
-Para gerar resumos, questões e divisões em tópicos, o sistema **envia trechos do material do usuário a um provedor de IA externo** (a OpenAI, na configuração prevista). As telas de cadastro, envio, tópico e revisão avisam isso. Dentro do Nexo o material é isolado por conta e pode ser excluído; o que o provedor receber segue as regras dele, por isso use material que você pode compartilhar e confira os termos de uso de dados da API antes de usar com outras pessoas. O sistema ainda não registra consentimento do usuário.
+Os testes de ponta a ponta marcados com `@ia` dependem de IA real e **não rodam por padrão** (`NEXO_E2E_IA=1` os liga). O CI (`.github/workflows/ci.yml`) roda os demais. Localmente os testes de navegador foram executados em Chrome e no perfil de celular; o Firefox roda só no CI.
 
 ## Provedores de IA
 
-O serviço de processamento lê `MODELO_EMBEDDING_PROVEDOR` e `MODELO_LINGUAGEM_PROVEDOR` (`falso` por padrão). O embedding real da OpenAI está implementado (`openai`, com `OPENAI_API_KEY`) e o modelo de linguagem real também, **mas ainda não foi executado contra a API real**: só contra um servidor que imita o formato. Em produção (`NEXO_AMBIENTE=producao`) a aplicação recusa subir com e-mail falso e recusa operações de IA se o serviço informar provedor falso.
+O serviço de processamento lê `MODELO_EMBEDDING_PROVEDOR` e `MODELO_LINGUAGEM_PROVEDOR` (`falso` por padrão; `openai` ou `gemini` para IA real). Chaves e preços ficam só no `.env`.
 
-### Usar o Gemini (nível gratuito, para desenvolvimento)
+### OpenAI (usada em produção)
 
-Alternativa sem custo enquanto o projeto não está em produção. **Use só material seu**: no nível gratuito o Google pode usar o conteúdo enviado para melhorar seus produtos.
+```
+MODELO_EMBEDDING_PROVEDOR=openai
+MODELO_LINGUAGEM_PROVEDOR=openai
+OPENAI_API_KEY=sk-...
+MODELO_LINGUAGEM_NOME=<nome exato do modelo>
+PRECO_LINGUAGEM_ENTRADA_USD_POR_MILHAO=<valor da página de preços>
+PRECO_LINGUAGEM_SAIDA_USD_POR_MILHAO=<valor da página de preços>
+```
 
-1. Crie a chave em **https://aistudio.google.com/apikey** (conta Google). No mesmo site, em AI Studio, confira os limites do nível gratuito e os modelos liberados para você (a documentação do Google não publica os números).
-2. No `.env`:
-   ```
-   MODELO_LINGUAGEM_PROVEDOR=gemini
-   MODELO_EMBEDDING_PROVEDOR=gemini
-   GEMINI_API_KEY=...
-   MODELO_LINGUAGEM_NOME=gemini-3.1-flash-lite      # ou gemini-3.5-flash-lite
-   MODELO_EMBEDDING_NOME=gemini-embedding-2        # vazio também vale; alternativas: gemini-embedding-001, gemini-embedding-2-preview
-   PRECO_LINGUAGEM_ENTRADA_USD_POR_MILHAO=0
-   PRECO_LINGUAGEM_SAIDA_USD_POR_MILHAO=0
-   PRECO_EMBEDDING_USD_POR_MILHAO=0
-   ```
-   Os dois provedores são independentes: dá para usar o Gemini num e a OpenAI no outro.
-3. Trocar o provedor do embedding exige reindexar: `docker compose down -v && docker compose up -d --build` e envie os materiais de novo.
-4. Teste de fumaça: `cd servico-processamento && GEMINI_API_KEY=... MODELO_LINGUAGEM_NOME=... .venv/bin/pytest -m real -k gemini -q`.
-5. Em produção volte à OpenAI trocando `gemini` por `openai`, a chave e os preços reais.
+Sem os dois preços a aplicação **recusa** operações com o modelo de linguagem real (o controle de uso precisa do custo). O embedding padrão é o `text-embedding-3-small` (1536 dimensões, igual à coluna do banco); o `text-embedding-3-large` funciona em 1536 dimensões com `MODELO_EMBEDDING_NOME=text-embedding-3-large` e `PRECO_EMBEDDING_USD_POR_MILHAO`. Trocar o modelo de embedding exige reindexar tudo. `MODELO_LINGUAGEM_MAX_TOKENS` ajusta o teto de cada resposta (modelos de raciocínio gastam tokens pensando). Um teste de fumaça do adaptador (1 chamada): `cd servico-processamento && OPENAI_API_KEY=sk-... MODELO_LINGUAGEM_NOME=... .venv/bin/pytest -m real -k linguagem -q`.
 
-Ainda não foi executado contra a API real do Google, só contra um servidor que imita o formato documentado.
+### Gemini (alternativa com nível gratuito, para desenvolvimento)
 
-### Escolher o modelo de embedding
+**Use só material seu**: no nível gratuito o Google pode usar o conteúdo enviado para melhorar seus produtos. Crie a chave em https://aistudio.google.com/apikey e, no `.env`:
 
-O padrão é o `text-embedding-3-small`. Para usar o `text-embedding-3-large`, no `.env`: `MODELO_EMBEDDING_PROVEDOR=openai`, `MODELO_EMBEDDING_NOME=text-embedding-3-large` e `PRECO_EMBEDDING_USD_POR_MILHAO=<valor da página de preços>` (sem o preço o modelo é recusado). A dimensão continua 1536 (a coluna do banco): a API reduz o vetor do `large` com o parâmetro `dimensions`. Trocar de modelo exige reindexar tudo; em desenvolvimento, `docker compose down -v` e reenvie os materiais.
+```
+MODELO_LINGUAGEM_PROVEDOR=gemini
+MODELO_EMBEDDING_PROVEDOR=gemini
+GEMINI_API_KEY=...
+MODELO_LINGUAGEM_NOME=gemini-3.1-flash-lite
+MODELO_EMBEDDING_NOME=gemini-embedding-2
+PRECO_LINGUAGEM_ENTRADA_USD_POR_MILHAO=0
+PRECO_LINGUAGEM_SAIDA_USD_POR_MILHAO=0
+PRECO_EMBEDDING_USD_POR_MILHAO=0
+```
 
-### Testar o modelo de linguagem real (conta gratuita serve para o "Reorganizar com IA")
+Os dois provedores são independentes. Este adaptador foi testado apenas contra um servidor que imita o formato documentado, não contra a API real do Google.
 
-1. Em platform.openai.com crie uma chave de API e abra **Settings > Limits**: lá aparecem os modelos disponíveis e os limites da sua conta. Escolha um modelo pequeno e anote o nome exato.
-2. No `.env`:
-   ```
-   MODELO_LINGUAGEM_PROVEDOR=openai
-   OPENAI_API_KEY=sk-...
-   MODELO_LINGUAGEM_NOME=<nome exato do modelo>
-   PRECO_LINGUAGEM_ENTRADA_USD_POR_MILHAO=0      # conta gratuita: 0 e 0 (o limite de gasto não age, mas não há cobrança)
-   PRECO_LINGUAGEM_SAIDA_USD_POR_MILHAO=0        # conta paga: os valores da página de preços
-   MODELO_EMBEDDING_PROVEDOR=falso                      # o "Reorganizar" não usa embeddings; deixe falso para não gastar nem esbarrar nos limites
-   ```
-   Sem os dois preços a aplicação **recusa** operações com o modelo real (o limite de gasto precisa do custo).
-3. `docker compose up -d --build`.
-4. Teste de fumaça do adaptador (1 chamada): `cd servico-processamento && OPENAI_API_KEY=sk-... MODELO_LINGUAGEM_NOME=... .venv/bin/pytest -m real -k linguagem -q`.
-5. Pela tela: envie um material pequeno (poucas páginas) e use **Reorganizar com IA**. É uma chamada por clique. Gerar resumo e questões gasta mais chamadas (cerca de 11 para 5 questões, contando verificações e embeddings), e planos gratuitos costumam ter limites baixos por minuto.
-6. Se algo falhar, a tela já diz o motivo (limite do plano, sem crédito, chave, modelo ou preço); o detalhe está em `docker compose logs backend processamento`.
+## Privacidade
 
-Atenção: o teste envia trechos do seu material à OpenAI (o "Reorganizar" manda só o início de cada trecho).
+Para gerar resumos, questões e divisões em tópicos, o sistema **envia trechos do material do usuário a um provedor de IA externo** (a OpenAI, na configuração de produção). As telas de cadastro, envio, tópico e revisão avisam isso. Dentro do Nexo o material é isolado por conta e pode ser excluído a qualquer momento; o que o provedor receber segue as regras dele, por isso use material que você pode compartilhar e confira os termos de uso de dados da API antes de usar com outras pessoas.
+
+## Produção (VPS com Docker Compose e Caddy)
+
+O arquivo `docker-compose.prod.yml` é uma sobreposição do `docker-compose.yml`: com `COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml` no `.env`, todo comando `docker compose` usa os dois. Em produção só o Caddy publica portas (80 e 443): o banco, o backend e o serviço de processamento ficam na rede interna, com reinício automático e verificação de saúde. A aplicação recusa subir com configuração só de desenvolvimento (`NEXO_AMBIENTE=producao`: e-mail simulado, cookie sem `Secure`, endereço sem HTTPS ou segredos de exemplo).
+
+```bash
+git clone https://github.com/gpsnts/nexo.git && cd nexo
+cp env.producao.exemplo .env && chmod 600 .env    # preencha o .env no servidor (segredos nunca vão para o repositório)
+docker compose up -d --build
+docker compose ps                                  # todos saudáveis; "migracao" termina e sai
+```
+
+Requisitos: Docker Engine com Compose 2.24 ou mais novo, um domínio apontando para o servidor (registro A) e as portas 80 e 443 liberadas.
+
+- **`.env` de produção:** `env.producao.exemplo` lista todas as variáveis e como gerar cada segredo (`openssl rand -base64 48 | tr -d '/+=\n'`). Obrigatórios: `NEXO_DOMINIO`, `NEXO_ACME_EMAIL`, `NEXO_ADMIN_EMAILS`, as senhas do banco, `NEXO_JWT_SEGREDO`, `NEXO_PROCESSAMENTO_SEGREDO` e os dados do SMTP.
+- **E-mail:** use um serviço de envio com SMTP (não monte servidor próprio) e autentique o domínio (SPF/DKIM/DMARC). Teste com as mesmas credenciais do backend: `docker compose run --rm testar-smtp seu@email.com` (mostra conexão, criptografia, login e envio, sem exibir a senha).
+- **Backup:** `scripts/backup.sh` (dump do banco, arquivos enviados e contagem de linhas por tabela, em `~/nexo-backups`), `scripts/testar-backup.sh` (restaura em um banco descartável e compara as tabelas) e `scripts/restaurar.sh` (restauração real, com confirmação digitada). Agende no `crontab` (por exemplo, o backup às 3h e o teste de restauração aos domingos) e **copie os backups para fora do servidor**.
+- **Atualizar:** `scripts/backup.sh`, `git pull` e `docker compose up -d --build`. As migrações do banco rodam sozinhas no serviço `migracao`.
+- **Trocar um segredo:** edite o `.env` e recrie o serviço (`docker compose up -d backend`). Trocar `NEXO_JWT_SEGREDO` encerra todas as sessões; a senha do papel `nexo_app` exige rodar `docker compose run --rm migracao` antes de reiniciar o backend.
+- **Rede lenta no servidor** (o build falha com `connection timed out`): construa as imagens na sua máquina (`docker compose build`), exporte com `docker save`, envie com `rsync --partial --append-verify` e carregue no servidor com `docker load` antes de `docker compose up -d --no-build --pull never`.
+- **Ensaio local da produção:** `docker-compose.ensaio.yml` acrescenta um servidor de e-mail local (Mailpit) e roda com `localhost` no lugar do domínio. Use sempre um projeto Compose separado (`-p nexo-ensaio`) e um arquivo de variáveis fora do repositório, para não tocar no banco de desenvolvimento.
+
+O arquivo `.env` do servidor é a única fonte de segredos; o backend conecta ao banco com o papel `nexo_app` e o serviço de processamento nunca recebe credenciais do banco.
